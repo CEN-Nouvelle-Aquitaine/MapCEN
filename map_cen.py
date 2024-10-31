@@ -163,7 +163,6 @@ class MapCEN:
         self.dlg.pushButton.clicked.connect(self.ajout_couches)
         self.dlg.commandLinkButton_4.clicked.connect(self.actualisation_emprise)
 
-
         self.dlg.commandLinkButton_5.clicked.connect(self.ouverture_composeur)
         self.dlg.commandLinkButton_6.clicked.connect(self.popup_resolution)
         self.dlg.commandLinkButton_7.clicked.connect(self.show_welcome_popup)
