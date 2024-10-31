@@ -155,7 +155,6 @@ class MapCEN:
         # module_perim_eco.dlg = self.dlg
         self.plugin_path = os.path.dirname(__file__)
 
-
         self.dlg.commandLinkButton.clicked.connect(self.chargement_qpt)
 
         self.dlg.comboBox_3.currentIndexChanged.connect(self.initialisation)
