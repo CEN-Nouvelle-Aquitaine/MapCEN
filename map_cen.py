@@ -21,9 +21,9 @@
  ***************************************************************************/
 """
 
-from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt
+from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt, QThread, pyqtSignal, QSize
 from qgis.PyQt.QtGui import QFont, QIcon, QMovie, QColor, QPixmap
-from qgis.PyQt.QtWidgets import QWidget, QAction, QMessageBox, QLabel, QPushButton, QFileDialog, QDialog, QVBoxLayout
+from qgis.PyQt.QtWidgets import QWidget, QAction, QMessageBox, QLabel, QPushButton, QFileDialog, QDialog, QVBoxLayout, QListWidget
 from qgis.utils import iface
 from qgis.gui import QgsMapToolPan
 
@@ -35,7 +35,7 @@ from qgis.core import (
     QgsUnitTypes, QgsLayoutSize, QgsLayoutPoint, QgsPrintLayout,
     QgsGeometryGeneratorSymbolLayer, QgsWkbTypes, QgsSimpleFillSymbolLayer, QgsLayoutItemMap,
     QgsLayoutItemScaleBar, QgsAggregateCalculator, QgsReadWriteContext,
-    QgsLayoutItemPage, QgsLayerTreeGroup, QgsLegendStyle
+    QgsLayoutItemPage, QgsLayerTreeGroup, QgsLegendStyle, QgsDataSourceUri
 )
 
 from qgis.PyQt.QtXml import QDomDocument
@@ -70,7 +70,19 @@ except socket.error:
                         'Vous n\'êtes actuellement pas connecté à internet. Veuillez vous connecter pour pouvoir utiliser MapCEN !')
 
 
+class LoadingThread(QThread):
+    # Signaux pour démarrer et terminer le chargement
+    started = pyqtSignal()
+    finished = pyqtSignal()
 
+    def __init__(self, plugin_instance):
+        super().__init__()
+        self.plugin_instance = plugin_instance
+
+    def run(self):
+        self.started.emit()  # Démarre l'animation
+        self.plugin_instance.initialisation()  # Exécute la fonction de chargement
+        self.finished.emit()  # Termine l'animation
 
 class OptionsWindow(QWidget):
     def __init__(self, parent=None):
@@ -112,6 +124,43 @@ class OptionsWindow(QWidget):
         self.close()
 
 
+class AuthSelectionDialog(QDialog):
+    def __init__(self, auth_configs, parent=None):
+        super(AuthSelectionDialog, self).__init__(parent)
+        self.selected_auth_id = None
+        self.auth_config_dict = {}  # Dictionnaire pour stocker l'association entre nom et ID
+        
+        self.setWindowTitle("Sélectionner une configuration d'authentification")
+
+        layout = QVBoxLayout()
+
+        # List to display available authentication configurations
+        self.list_widget = QListWidget(self)
+        for auth_id, auth_config in auth_configs.items():
+            auth_name = auth_config.name()  # Obtenir le nom de la configuration
+            self.list_widget.addItem(auth_name)
+            self.auth_config_dict[auth_name] = auth_id  # Associer le nom à l'ID
+
+        layout.addWidget(self.list_widget)
+
+        # OK button
+        ok_button = QPushButton("OK")
+        ok_button.clicked.connect(self.accept_selection)
+        layout.addWidget(ok_button)
+
+        self.setLayout(layout)
+
+    def accept_selection(self):
+        # Get the selected item from the list
+        selected_item = self.list_widget.currentItem()
+        if selected_item:
+            selected_name = selected_item.text()
+            # Récupérer l'ID associé au nom sélectionné
+            self.selected_auth_id = self.auth_config_dict.get(selected_name)
+            self.accept()
+        else:
+            QMessageBox.warning(self, "Sélection requise", "Veuillez sélectionner une configuration d'authentification.")
+
 class MapCEN:
     """QGIS Plugin Implementation."""
 
@@ -124,7 +173,6 @@ class MapCEN:
         """
         # Save reference to the QGIS interface
         self.iface = iface
-
 
         # initialize plugin directory
         self.plugin_dir = os.path.dirname(__file__)
@@ -156,8 +204,8 @@ class MapCEN:
 
         self.dlg.commandLinkButton.clicked.connect(self.chargement_qpt)
 
-        self.dlg.comboBox_3.currentIndexChanged.connect(self.initialisation)
-        self.dlg.commandLinkButton_3.clicked.connect(self.popup_info)
+        self.dlg.comboBox_3.currentIndexChanged.connect(self.start_initialisation_with_loading)
+        self.dlg.commandLinkButton_3.clicked.connect(self.choose_default_authentication)
         self.dlg.pushButton.clicked.connect(self.ajout_couches)
         self.dlg.commandLinkButton_4.clicked.connect(self.actualisation_emprise)
 
@@ -214,9 +262,36 @@ class MapCEN:
         self.dlg.radioButton_7.setChecked(True)
 
 
+       # Créez un QLabel pour afficher le GIF
+        self.label_loading = QLabel(self.dlg)
+
+        # Configurez le QLabel avec le GIF
+        self.loading_gif = QMovie(str(self.plugin_path) + "/icons/underconstruction.gif")   # Remplacez par le chemin de votre GIF
+        self.label_loading.setMovie(self.loading_gif)
+
+        # Spécifiez les dimensions souhaitées pour redimensionner le GIF
+        scaled_width = 300  # Définissez la largeur souhaitée
+        scaled_height = 200  # Définissez la hauteur souhaitée
+        self.loading_gif.setScaledSize(QSize(scaled_width, scaled_height))
+
+        # Appliquez la taille redimensionnée au QLabel
+        self.label_loading.resize(scaled_width, scaled_height)
+
+        # Calculez les coordonnées pour centrer le GIF dans le plugin
+        dlg_width = self.dlg.width()
+        dlg_height = self.dlg.height()
+        x = (dlg_width - scaled_width) // 2
+        y = (dlg_height - scaled_height) // 2
+
+        # Positionnez le QLabel au centre
+        self.label_loading.move(x, y)
+
+
+        self.label_loading.raise_()  # Place au premier plan
+
+
         # Je rassemble toutes mes variables que je veux initialiser à une valeur vide dans un dictionnaire pour qu'elles soient assignées à une valeur à partir d'une fonction spécifique This approach avoids cluttering your class with many individual variables
         # Je fais ça pour éviter de d'encombrer de faire une liste de course de nombreuses variables individuelles.
-
         self.template_parameters = {
             'map_size': None,
             'map_position' : None,
@@ -252,7 +327,7 @@ class MapCEN:
 
         # Ajouter une image (remplace 'maj_4.5.JPG' par le chemin de ton image)
         label_image = QLabel()
-        pixmap = QPixmap(self.plugin_path + "/html/images/logo_mapcen.jpg")  
+        pixmap = QPixmap(self.plugin_path + "/html/images/logo_mapcen.JPG")  
 
         # Vérifier si l'image existe et est chargée
         if not pixmap.isNull():
@@ -427,9 +502,34 @@ class MapCEN:
             callback=self.run,
             parent=self.iface.mainWindow())
 
+        # Appeler la fonction pour informer l'utilisateur s'il a plus d'une configuration d'authentification
+        self.check_authentication_configs()
+
         # will be set False in run()
         self.first_start = True
 
+
+    def check_authentication_configs(self):
+        """Vérifie le nombre de configurations d'authentification disponibles et affiche un message si nécessaire."""
+
+        managerAU = QgsApplication.authManager()
+        auth_configs = managerAU.availableAuthMethodConfigs()  # Récupérer toutes les configurations disponibles
+
+        # Vérifier si une authentification par défaut a été définie et l'appliquer
+        settings = QSettings()
+        default_auth_id = settings.value("MapCEN/default_auth_id", None)
+        
+        if default_auth_id:
+            self.apply_authentication_if_needed(QgsDataSourceUri())  
+
+        elif len(auth_configs) > 1:
+            # Si plusieurs configurations sont disponibles et aucune par défaut n'est définie
+            QMessageBox.information(
+                self.iface.mainWindow(),
+                "Choix de la configuration d'authentification",
+                "<center>Vous avez plusieurs configurations d'authentification disponibles.</center><br> Veuillez vous assurer de choisir la bonne configuration pour utiliser FluxCEN.<br>"
+                "Vous pouvez définir votre configuration par défault en cliquant sur l'icone en forme de 🛠️ en bas à droite de la fenêtre du plugin."
+            )
 
     def unload(self):
         """Removes the plugin menu item and icon from QGIS GUI."""
@@ -461,6 +561,25 @@ class MapCEN:
             # substitute with your code.
             pass
 
+    def start_initialisation_with_loading(self):
+        # Créez le thread pour le chargement et connectez les signaux
+        self.thread = LoadingThread(self)
+        self.thread.started.connect(self.show_loading)
+        self.thread.finished.connect(self.hide_loading)
+        
+        # Démarrez le thread
+        self.thread.start()
+
+    def show_loading(self):
+        """Démarre l'affichage du GIF et l'animation"""
+        self.label_loading.show()
+        self.loading_gif.start()
+
+    def hide_loading(self):
+        """Masque le GIF lorsque le chargement est terminé"""
+        self.loading_gif.stop()
+        self.label_loading.hide()
+
     def load_urls(self, yaml_file):
         # Charger le fichier YAML contenant plusieurs clés
         config_path = os.path.join(self.plugin_path, yaml_file)
@@ -478,6 +597,56 @@ class MapCEN:
         last_version_url = depot_plugins_url.get('last_version')
 
         return last_version_url, info_changelog
+    
+    def choose_default_authentication(self):
+        managerAU = QgsApplication.authManager()
+        auth_configs = managerAU.availableAuthMethodConfigs()  # Récupérer toutes les configurations disponibles
+
+        if not auth_configs:
+            QMessageBox.warning(self.dlg, "Pas de configurations", "Aucune configuration d'authentification disponible.")
+            return
+
+        dialog = AuthSelectionDialog(auth_configs)
+        if dialog.exec_() == QDialog.Accepted:
+            selected_auth_id = dialog.selected_auth_id
+            # Enregistrer la configuration par défaut dans QSettings
+            settings = QSettings()
+            settings.setValue("MapCEN/default_auth_id", selected_auth_id)
+            QMessageBox.information(self.dlg, "Configuration sauvegardée", "La configuration d'authentification par défaut a été définie.")
+
+
+    def apply_authentication_if_needed(self, uri):
+        """
+        Applique une configuration d'authentification si nécessaire.
+        Charge automatiquement la configuration par défaut si elle est enregistrée dans QSettings.
+        """
+        settings = QSettings()
+        default_auth_id = settings.value("MapCEN/default_auth_id", None)
+
+        # Si une configuration par défaut existe, on l'applique automatiquement
+        if default_auth_id:
+            uri.setAuthConfigId(default_auth_id)
+            return True
+
+        # Si aucune configuration par défaut n'est définie, ouvrir la boîte de dialogue
+        managerAU = QgsApplication.authManager()
+        auth_configs = managerAU.availableAuthMethodConfigs()  # Récupérer toutes les configurations disponibles
+
+        if len(auth_configs) == 1:
+            # Si une seule configuration est disponible, on l'applique directement
+            auth_id = list(auth_configs.keys())[0]
+            uri.setAuthConfigId(auth_id)
+            return True
+        elif len(auth_configs) > 1:
+            # Si plusieurs configurations sont disponibles, on invite l'utilisateur à en choisir une
+            dialog = AuthSelectionDialog(auth_configs)
+            result = dialog.exec_()
+            if result == QDialog.Accepted and dialog.selected_auth_id:
+                uri.setAuthConfigId(dialog.selected_auth_id)
+                return True
+        else:
+            QMessageBox.warning(iface.mainWindow(), "Attention", "Aucune configuration d'authentification n'a été trouvée dans votre QGIS. Veuillez ajouter la configuration d'authentification CEN-NA pour charger des couches nécessitant une authentification telles que la MFU.")
+            
 
     def choix_dept(self):
 
@@ -558,20 +727,17 @@ class MapCEN:
             self.dlg.mComboBox_3.hide()
             self.dlg.label_15.hide()
 
-        # Lecture de l'authentification QGIS. Si pas d'authentification alors message d'erreur :
-        managerAU = QgsApplication.authManager()
-        self.k = managerAU.availableAuthMethodConfigs().keys()
-        # print(self.k)
-        if len(list(self.k)) == 0:
-            QMessageBox.question(iface.mainWindow(), u"Attention !",
-                                 "Veuillez ajouter une entrée de configuration d'authentification dans QGIS pour accéder aux flux CEN-NA sécurisés par un mot de passe",
-                                 QMessageBox.Ok)
+        # Initialisez `uri` ici avant de le passer à `apply_authentication_if_needed`
+        uri = QgsDataSourceUri()
+        uri.setParam("url", "https://opendata.cen-nouvelle-aquitaine.org/geoserver/fonciercen/wfs")
+        uri.setParam("typename", "fonciercen:site_gere_poly")
 
-        # La couche "site géré" est une donnée protégée donc lecture de l'entrée d'authentification pour pouvoir la charger dans QGIS :
-        uri = ['https://opendata.cen-nouvelle-aquitaine.org/geoserver/fonciercen/wfs?VERSION=1.0.0&TYPENAME=fonciercen:site_gere_poly&SRSNAME=EPSG:4326&authcfg=',list(self.k)[0], '&request=GetFeature']
-        uri = ''.join(uri)
+        # Appliquer l'authentification
+        if not self.apply_authentication_if_needed(uri):
+            return  # Abandonner si l'authentification échoue
 
-        self.vlayer = QgsVectorLayer(uri, "Sites gérés CEN-NA", "WFS")
+        # La couche "site géré" est une donnée protégée donc lecture de l'entrée d'authentification pour pouvoir la charger dans QGIS
+        self.vlayer = QgsVectorLayer(uri.uri(), "Sites gérés CEN-NA", "WFS")
 
         if QgsProject.instance().mapLayersByName("Sites gérés CEN-NA"):
             # self.vlayer = QgsProject.instance().mapLayersByName("Sites gérés CEN-NA")[0]
@@ -637,8 +803,16 @@ class MapCEN:
 
         ### -------------------- Chargement des sites fonciercen ---------------------- ###
 
-        uri = ['https://opendata.cen-nouvelle-aquitaine.org/geoserver/fonciercen/wfs?VERSION=1.0.0&TYPENAME=fonciercen:mfu_cenna&SRSNAME=EPSG:4326&authcfg=', list(self.k)[0], '&request=GetFeature']
-        uri = ''.join(uri)
+        # Initialisez `uri` ici avant de le passer à `apply_authentication_if_needed`
+        uri = QgsDataSourceUri()
+        uri.setParam("url", "https://opendata.cen-nouvelle-aquitaine.org/geoserver/fonciercen/wfs")
+        uri.setParam("typename", "fonciercen:mfu_cenna")
+
+        # Appliquer l'authentification
+        if not self.apply_authentication_if_needed(uri):
+            return  # Abandonner si l'authentification échoue
+
+        self.layer = QgsVectorLayer(uri.uri(), "Parcelles CEN NA en MFU", "WFS")
 
         # méthode plus rapide pour charger layer que QgsProject.instance().addMapLayer(layer) :
         if QgsProject.instance().mapLayersByName("Parcelles CEN NA en MFU"):
@@ -646,7 +820,7 @@ class MapCEN:
             iface.messageBar().pushMessage("Couche 'Parcelles CEN NA en MFU'", "La couche 'Parcelles CEN NA en MFU' est déjà chargée dans le canvas QGIS", level=Qgis.Success, duration=5)
 
         else:
-            self.layer = iface.addVectorLayer(uri, "Parcelles CEN NA en MFU", "WFS")
+            self.layer = QgsProject.instance().addMapLayer(self.layer)
 
         if not self.layer:
             # QMessageBox.question(iface.mainWindow(), u"Erreur !", "Impossible de charger la couche %s, veuillez contacter le pôle DSI !" % self.dlg.comboBox.currentText(), QMessageBox.Ok)
@@ -799,51 +973,63 @@ class MapCEN:
 
             # ### Zoom sur emprise du ou des sites CEN selectionnés:
 
+            selected_values = []
+
+            # Vérifie la sélection dans mComboBox et collecte les valeurs `codesite` ou `nom_site`
             for sites in self.dlg.mComboBox.checkedItems():
                 if self.dlg.checkBox.isChecked():
+                    # Utilise `codesite` comme critère de sélection
                     self.vlayer.selectByExpression('"codesite"= \'{0}\''.format(sites.replace("'", "''")), QgsVectorLayer.AddToSelection)
+                    selected_values.append(sites)
                 else:
+                    # Utilise `nom_site` comme critère de sélection
                     self.vlayer.selectByExpression('"nom_site"= \'{0}\''.format(sites.replace("'", "''")), QgsVectorLayer.AddToSelection)
+                    selected_values.append(sites)
 
+            # Zoom sur les entités sélectionnées
             iface.mapCanvas().zoomToSelected(self.vlayer)
-
             QgsProject.instance().setCrs(QgsCoordinateReferenceSystem(2154))
 
+            # Définir le champ de filtrage basé sur `codesite` ou `nom_site`
+            field_name = "codesite" if self.dlg.checkBox.isChecked() else "nom_site"
+
+            # Crée l'expression de filtrage en fonction des valeurs sélectionnées
+            values_str = ", ".join([f"'{value}'" for value in selected_values])
+            expression = f"\"{field_name}\" IN ({values_str})"  # Expression dynamique en fonction du champ
+
+            # Définir les règles avec l'expression pour styliser les valeurs sélectionnées
             rules = (
-                ('Site CEN sélectionné', "is_selected()", 'red'),
+                ('Site CEN sélectionné', expression, 'red'),
             )
 
-            # create a new rule-based renderer
+            # Crée un renderer basé sur des règles
             symbol = QgsSymbol.defaultSymbol(self.vlayer.geometryType())
             renderer = QgsRuleBasedRenderer(symbol)
 
-            # get the "root" rule
+            # Accède à la règle racine
             root_rule = renderer.rootRule()
 
             for label, expression, color_name in rules:
-                # create a clone (i.e. a copy) of the default rule
+                # Crée un clone de la règle par défaut
                 rule = root_rule.children()[0].clone()
-                # set the label, expression and color
+                # Applique l'expression de filtrage et le style
                 rule.setLabel(label)
                 rule.setFilterExpression(expression)
-                symbol_layer = rule.symbol().symbolLayer(0)
-                color = symbol_layer.color()
                 generator = QgsGeometryGeneratorSymbolLayer.create({})
                 generator.setSymbolType(QgsSymbol.Marker)
                 generator.setGeometryExpression("centroid($geometry)")
-                generator.setColor(QColor('Red'))
+                generator.setColor(QColor(color_name))
                 rule.symbol().setColor(QColor(color_name))
-                # set the scale limits if they have been specified
-                # append the rule to the list of rules
+                
+                # Modifie la règle pour utiliser le générateur de symboles et ajoute la règle
                 rule.symbol().changeSymbolLayer(0, generator)
                 root_rule.appendChild(rule)
 
-            # delete the default rule
+            # Supprime la règle par défaut
             root_rule.removeChildAt(0)
 
-            # apply the renderer to the layer
+            # Applique le renderer à la couche et rafraîchit l'affichage
             self.vlayer.setRenderer(renderer)
-            # refresh the layer on the map canvas
             self.vlayer.triggerRepaint()
 
             if self.dlg.comboBox_3.currentText() == "Périmètres écologiques":
