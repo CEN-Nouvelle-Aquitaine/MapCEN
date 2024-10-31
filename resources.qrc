@@ -1,0 +1,17 @@
+<RCC>
+    <qresource prefix="/plugins/map_cen" >
+        <file>icons/icon.png</file>
+        <file>background_plugin.PNG</file>
+        <file>icons/edit.png</file>
+        <file>icons/project.png</file>
+        <file>icons/refresh.png</file>
+        <file>icons/jpg.png</file>
+        <file>icons/zoom.png</file>
+        <file>icons/zoom_out.png</file>
+        <file>icons/logo.jpg</file>
+        <file>icons/underconstruction.gif</file>
+        <file>icons/onglet.png</file>
+        <file>icons/parametres.png</file>
+		 <file>icons/info.png</file>
+   </qresource>
+</RCC>
