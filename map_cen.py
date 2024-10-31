@@ -151,7 +151,6 @@ class MapCEN:
         self.module_loc_generale = module_loc_generale()
         self.module_loc_generale.dlg = self.dlg
 
-
         # module_perim_eco.dlg = self.dlg
         self.plugin_path = os.path.dirname(__file__)
 
