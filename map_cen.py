@@ -75,13 +75,14 @@ class LoadingThread(QThread):
     started = pyqtSignal()
     finished = pyqtSignal()
 
-    def __init__(self, plugin_instance):
+    def __init__(self, plugin_instance, target_function):
         super().__init__()
         self.plugin_instance = plugin_instance
-
+        self.target_function = target_function  # Function to run in the thread
+        
     def run(self):
         self.started.emit()  # Démarre l'animation
-        self.plugin_instance.initialisation()  # Exécute la fonction de chargement
+        self.target_function()  # Exécute la fonction de chargement
         self.finished.emit()  # Termine l'animation
 
 class OptionsWindow(QWidget):
@@ -206,7 +207,7 @@ class MapCEN:
 
         self.dlg.comboBox_3.currentIndexChanged.connect(self.start_initialisation_with_loading)
         self.dlg.commandLinkButton_3.clicked.connect(self.choose_default_authentication)
-        self.dlg.pushButton.clicked.connect(self.ajout_couches)
+        self.dlg.pushButton.clicked.connect(self.start_ajout_couches_with_loading)
         self.dlg.commandLinkButton_4.clicked.connect(self.actualisation_emprise)
 
         self.dlg.commandLinkButton_5.clicked.connect(self.ouverture_composeur)
@@ -266,12 +267,12 @@ class MapCEN:
         self.label_loading = QLabel(self.dlg)
 
         # Configurez le QLabel avec le GIF
-        self.loading_gif = QMovie(str(self.plugin_path) + "/icons/underconstruction.gif")   # Remplacez par le chemin de votre GIF
+        self.loading_gif = QMovie(str(self.plugin_path) + "/icons/loading2.gif")   # Remplacez par le chemin de votre GIF
         self.label_loading.setMovie(self.loading_gif)
 
         # Spécifiez les dimensions souhaitées pour redimensionner le GIF
-        scaled_width = 300  # Définissez la largeur souhaitée
-        scaled_height = 200  # Définissez la hauteur souhaitée
+        scaled_width = 191  # Définissez la largeur souhaitée
+        scaled_height = 188  # Définissez la hauteur souhaitée
         self.loading_gif.setScaledSize(QSize(scaled_width, scaled_height))
 
         # Appliquez la taille redimensionnée au QLabel
@@ -562,12 +563,21 @@ class MapCEN:
             pass
 
     def start_initialisation_with_loading(self):
-        # Créez le thread pour le chargement et connectez les signaux
-        self.thread = LoadingThread(self)
+        # Create the thread for loading with initialisation and connect signals
+        self.thread = LoadingThread(self, self.initialisation)
         self.thread.started.connect(self.show_loading)
         self.thread.finished.connect(self.hide_loading)
         
-        # Démarrez le thread
+        # Start the thread
+        self.thread.start()
+
+    def start_ajout_couches_with_loading(self):
+        # Create the thread for loading with ajout_couches and connect signals
+        self.thread = LoadingThread(self, self.ajout_couches)
+        self.thread.started.connect(self.show_loading)
+        self.thread.finished.connect(self.hide_loading)
+        
+        # Start the thread
         self.thread.start()
 
     def show_loading(self):
@@ -730,7 +740,7 @@ class MapCEN:
         # Initialisez `uri` ici avant de le passer à `apply_authentication_if_needed`
         uri = QgsDataSourceUri()
         uri.setParam("url", "https://opendata.cen-nouvelle-aquitaine.org/geoserver/fonciercen/wfs")
-        uri.setParam("typename", "fonciercen:site_gere_poly")
+        uri.setParam("typename", "fonciercen:site_gere_point")
 
         # Appliquer l'authentification
         if not self.apply_authentication_if_needed(uri):
@@ -757,10 +767,6 @@ class MapCEN:
             nom_site_index = p.fields().indexFromName('nom_site')
             self.listes_sites_MFU.append(str(p[nom_site_index]))
 
-        # completer = QCompleter(self.listes_sites_MFU)
-        # completer.setCaseSensitivity(QtCore.Qt.CaseInsensitive)
-        # completer.setFilterMode(Qt.MatchContains)
-        # self.dlg.lineEdit.setCompleter(completer)
 
         # self.dlg.mComboBox.setLineEdit(self.dlg.lineEdit)
         self.dlg.mComboBox.addItems(self.listes_sites_MFU)
@@ -777,7 +783,8 @@ class MapCEN:
 
         self.dlg.commandLinkButton_4.setEnabled(False)
 
-
+        iface.mapCanvas().refresh()
+        
     def ajout_code_sites(self):
 
         # self.listes_sites_MFU.clear()
@@ -848,6 +855,8 @@ class MapCEN:
 
         else:
             return None
+        
+        iface.mapCanvas().refresh()
 
     def onTextChanged(self, filter_text):
 
@@ -997,33 +1006,24 @@ class MapCEN:
             values_str = ", ".join([f"'{value}'" for value in selected_values])
             expression = f"\"{field_name}\" IN ({values_str})"  # Expression dynamique en fonction du champ
 
-            # Définir les règles avec l'expression pour styliser les valeurs sélectionnées
-            rules = (
-                ('Site CEN sélectionné', expression, 'red'),
-            )
+            # Crée un symbole pour styliser les points en rouge
+            symbol = QgsSymbol.defaultSymbol(self.vlayer.geometryType())
+            symbol.setColor(QColor("red"))
 
             # Crée un renderer basé sur des règles
-            symbol = QgsSymbol.defaultSymbol(self.vlayer.geometryType())
             renderer = QgsRuleBasedRenderer(symbol)
 
             # Accède à la règle racine
             root_rule = renderer.rootRule()
 
-            for label, expression, color_name in rules:
-                # Crée un clone de la règle par défaut
-                rule = root_rule.children()[0].clone()
-                # Applique l'expression de filtrage et le style
-                rule.setLabel(label)
-                rule.setFilterExpression(expression)
-                generator = QgsGeometryGeneratorSymbolLayer.create({})
-                generator.setSymbolType(QgsSymbol.Marker)
-                generator.setGeometryExpression("centroid($geometry)")
-                generator.setColor(QColor(color_name))
-                rule.symbol().setColor(QColor(color_name))
-                
-                # Modifie la règle pour utiliser le générateur de symboles et ajoute la règle
-                rule.symbol().changeSymbolLayer(0, generator)
-                root_rule.appendChild(rule)
+            # Crée une règle avec l'expression et le style
+            rule = root_rule.children()[0].clone()
+            rule.setLabel("Site CEN sélectionné")  # Label de la règle
+            rule.setFilterExpression(expression)  # Filtre basé sur l'expression
+            rule.symbol().setColor(QColor("red"))  # Couleur rouge pour le symbole
+
+            # Ajoute la règle au renderer
+            root_rule.appendChild(rule)
 
             # Supprime la règle par défaut
             root_rule.removeChildAt(0)
@@ -1634,142 +1634,68 @@ class MapCEN:
 
 
     def actualisation_mise_en_page(self):
+        # Paramètres pour chaque combinaison de taille de page et d'orientation
+        page_settings = {
+            ('A4', 'Portrait'): {
+                'map_size': (199, 175), 'map_position': (5, 25),
+                'title_size': (200, 8), 'title_position': (5, 2),
+                'subtitle_size': (200, 8), 'subtitle_position': (5, 12),
+                'logo_size': (46, 16), 'logo_position': (5, 4),
+                'legend_size': (405, 203), 'legend_position': (5, 205),
+                'scalebar_size': (55, 15), 'scalebar_position': (145, 215),
+                'north_size': (12, 12), 'north_position': (193, 214),
+                'credit_text_size': (100, 3.9), 'credit_text_position': (205, 125),
+                'credit_text2_size': (100, 3.9), 'credit_text2_position': (104, 201)
+            },
+            ('A4', 'Landscape'): {
+                'map_size': (285, 145), 'map_position': (6, 23),
+                'title_size': (286, 8), 'title_position': (5, 2),
+                'subtitle_size': (286, 8), 'subtitle_position': (5, 10),
+                'logo_size': (46, 16), 'logo_position': (5, 4),
+                'legend_size': (405, 203), 'legend_position': (5, 168),
+                'scalebar_size': (55, 15), 'scalebar_position': (207, 183),
+                'north_size': (8.4, 12.5), 'north_position': (273, 182),
+                'credit_text_size': (100, 3.9), 'credit_text_position': (291.5, 123),
+                'credit_text2_size': (100, 3.9), 'credit_text2_position': (189, 168.5)
+            },
+            ('A3', 'Portrait'): {
+                'map_size': (285, 260), 'map_position': (6, 23),
+                'title_size': (286, 8), 'title_position': (5, 2),
+                'subtitle_size': (286, 8), 'subtitle_position': (5, 10),
+                'logo_size': (46, 16), 'logo_position': (5, 4),
+                'legend_size': (405, 203), 'legend_position': (5, 284),
+                'scalebar_size': (50, 15), 'scalebar_position': (207, 298),
+                'north_size': (8.4, 12.5), 'north_position': (273, 297),
+                'credit_text_size': (100, 3.9), 'credit_text_position': (291.5, 123),
+                'credit_text2_size': (100, 3.9), 'credit_text2_position': (189, 284)
+            },
+            ('A3', 'Landscape'): {
+                'map_size': (408.5, 222), 'map_position': (5, 23.5),
+                'title_size': (409, 8), 'title_position': (5, 2),
+                'subtitle_size': (409, 8), 'subtitle_position': (5, 10),
+                'logo_size': (46, 16), 'logo_position': (5, 4),
+                'legend_size': (405, 203), 'legend_position': (5, 249),
+                'scalebar_size': (55, 15), 'scalebar_position': (323, 270),
+                'north_size': (8.4, 12.5), 'north_position': (402, 270),
+                'credit_text_size': (100, 3.9), 'credit_text_position': (415, 123),
+                'credit_text2_size': (100, 3.9), 'credit_text2_position': (313, 247)
+            }
+        }
 
+        # Détermine la taille et l'orientation de la page sélectionnée
+        page_size = 'A4' if self.dlg.radioButton_6.isChecked() else 'A3'
+        orientation = 'Portrait' if self.dlg.radioButton_7.isChecked() else 'Landscape'
+        
+        # Applique les paramètres du dictionnaire
+        pc = self.layout.pageCollection()
+        pc.pages()[0].setPageSize(page_size, getattr(QgsLayoutItemPage, orientation))
 
-        if self.dlg.radioButton_6.isChecked() and self.dlg.radioButton_7.isChecked():
-
-            pc = self.layout.pageCollection()
-            pc.pages()[0].setPageSize('A4', QgsLayoutItemPage.Portrait)
-
-            self.template_parameters['map_size'] = QgsLayoutSize(199, 175, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['map_position'] = QgsLayoutPoint(5, 25, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['title_size'] = QgsLayoutSize(200, 8, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['title_position'] = QgsLayoutPoint(5, 2, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['subtitle_size'] = QgsLayoutSize(200, 8, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['subtitle_position'] = QgsLayoutPoint(5, 12, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['logo_size'] = QgsLayoutSize(46, 16, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['logo_position'] = QgsLayoutPoint(5, 4, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['legend_size'] = QgsLayoutSize(405, 203, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['legend_position'] = QgsLayoutPoint(5, 205, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['scalebar_size'] = QgsLayoutSize(55, 15, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['scalebar_position'] = QgsLayoutPoint(145, 215, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['north_size'] = QgsLayoutSize(12, 12, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['north_position'] = QgsLayoutPoint(193, 214, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['credit_text_size'] = QgsLayoutSize(100, 3.9, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['credit_text_position'] = QgsLayoutPoint(205, 125, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['credit_text2_size'] = QgsLayoutSize(100, 3.9, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['credit_text2_position'] = QgsLayoutPoint(104, 201, QgsUnitTypes.LayoutMillimeters)
-
-
-
-        if self.dlg.radioButton_6.isChecked() and self.dlg.radioButton_8.isChecked():
-
-            pc = self.layout.pageCollection()
-            pc.pages()[0].setPageSize('A4', QgsLayoutItemPage.Landscape)
-
-            self.template_parameters['map_size'] = QgsLayoutSize(285, 145, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['map_position'] = QgsLayoutPoint(6, 23, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['title_size'] = QgsLayoutSize(286, 8, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['title_position'] = QgsLayoutPoint(5, 2, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['subtitle_size'] = QgsLayoutSize(286, 8, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['subtitle_position'] = QgsLayoutPoint(5, 10, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['logo_size'] = QgsLayoutSize(46, 16, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['logo_position'] = QgsLayoutPoint(5, 4, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['legend_size'] = QgsLayoutSize(405, 203, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['legend_position'] = QgsLayoutPoint(5, 168, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['scalebar_size'] = QgsLayoutSize(55, 15, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['scalebar_position'] = QgsLayoutPoint(207, 183, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['north_size'] = QgsLayoutSize(8.4, 12.5, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['north_position'] = QgsLayoutPoint(273, 182, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['credit_text_size'] = QgsLayoutSize(100, 3.9, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['credit_text_position'] = QgsLayoutPoint(291.5, 123, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['credit_text2_size'] = QgsLayoutSize(100, 3.9, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['credit_text2_position'] = QgsLayoutPoint(189, 168.5, QgsUnitTypes.LayoutMillimeters)
-
-
-
-        if self.dlg.radioButton_5.isChecked() and self.dlg.radioButton_7.isChecked():
-
-            pc = self.layout.pageCollection()
-            pc.pages()[0].setPageSize('A3', QgsLayoutItemPage.Portrait)
-
-
-            self.template_parameters['map_size'] = QgsLayoutSize(285, 260, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['map_position'] = QgsLayoutPoint(6, 23, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['title_size'] = QgsLayoutSize(286, 8, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['title_position'] = QgsLayoutPoint(5, 2, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['subtitle_size'] = QgsLayoutSize(286, 8, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['subtitle_position'] = QgsLayoutPoint(5, 10, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['logo_size'] = QgsLayoutSize(46, 16, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['logo_position'] = QgsLayoutPoint(5, 4, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['legend_size'] = QgsLayoutSize(405, 203, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['legend_position'] = QgsLayoutPoint(5, 284, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['scalebar_size'] = QgsLayoutSize(50, 15, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['scalebar_position'] = QgsLayoutPoint(207, 298, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['north_size'] = QgsLayoutSize(8.4, 12.5, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['north_position'] = QgsLayoutPoint(273, 297, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['credit_text_size'] = QgsLayoutSize(100, 3.9, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['credit_text_position'] = QgsLayoutPoint(291.5, 123, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['credit_text2_size'] = QgsLayoutSize(100, 3.9, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['credit_text2_position'] = QgsLayoutPoint(189, 284, QgsUnitTypes.LayoutMillimeters)
-
-
-
-        if self.dlg.radioButton_5.isChecked() and self.dlg.radioButton_8.isChecked():
-
-            pc = self.layout.pageCollection()
-            pc.pages()[0].setPageSize('A3', QgsLayoutItemPage.Landscape)
-
-            self.template_parameters['map_size'] = QgsLayoutSize(408.5, 222, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['map_position'] = QgsLayoutPoint(5, 23.5, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['title_size'] = QgsLayoutSize(409, 8, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['title_position'] = QgsLayoutPoint(5, 2, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['subtitle_size'] = QgsLayoutSize(409, 8, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['subtitle_position'] = QgsLayoutPoint(5, 10, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['logo_size'] = QgsLayoutSize(46, 16, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['logo_position'] = QgsLayoutPoint(5, 4, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['legend_size'] = QgsLayoutSize(405, 203, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['legend_position'] = QgsLayoutPoint(5, 249, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['scalebar_size'] = QgsLayoutSize(55, 15, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['scalebar_position'] = QgsLayoutPoint(323, 270, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['north_size'] = QgsLayoutSize(8.4, 12.5, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['north_position'] = QgsLayoutPoint(402, 270, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['credit_text_size'] = QgsLayoutSize(100, 3.9, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['credit_text_position'] = QgsLayoutPoint(415, 123, QgsUnitTypes.LayoutMillimeters)
-
-            self.template_parameters['credit_text2_size'] = QgsLayoutSize(100, 3.9, QgsUnitTypes.LayoutMillimeters)
-            self.template_parameters['credit_text2_position'] = QgsLayoutPoint(313, 247, QgsUnitTypes.LayoutMillimeters)
+        settings = page_settings[(page_size, orientation)]
+        for param, (width, height) in settings.items():
+            if 'size' in param:
+                self.template_parameters[param] = QgsLayoutSize(width, height, QgsUnitTypes.LayoutMillimeters)
+            else:
+                self.template_parameters[param] = QgsLayoutPoint(width, height, QgsUnitTypes.LayoutMillimeters)
 
 
 
@@ -1801,58 +1727,33 @@ class MapCEN:
             bar_echelle.setUnits(QgsUnitTypes.DistanceKilometers)
             bar_echelle.setUnitLabel("km")
             bar_echelle.setUnitsPerSegment(1.5)
-            # self.scalebar_test.setUnits(QgsUnitTypes.DistanceKilometers)
-            # self.scalebar_test.setUnitLabel("km")
-            # self.scalebar_test.setUnitsPerSegment(1.5)
 
         elif echelle.scale() >= 30000:
             bar_echelle.setUnits(QgsUnitTypes.DistanceKilometers)
             bar_echelle.setUnitLabel("km")
             bar_echelle.setUnitsPerSegment(1)
-            # self.scalebar_test.setUnits(QgsUnitTypes.DistanceKilometers)
-            # self.scalebar_test.setUnitLabel("km")
-            # self.scalebar_test.setUnitsPerSegment(1)
 
         elif echelle.scale() >= 20000:
             bar_echelle.setUnits(QgsUnitTypes.DistanceKilometers)
             bar_echelle.setUnitLabel("km")
             bar_echelle.setUnitsPerSegment(0.5)
-            # self.scalebar_test.setUnits(QgsUnitTypes.DistanceKilometers)
-            # self.scalebar_test.setUnitLabel("km")
-            # self.scalebar_test.setUnitsPerSegment(0.5)
 
         elif echelle.scale() >= 9000:
             bar_echelle.setUnits(QgsUnitTypes.DistanceMeters)
             bar_echelle.setUnitLabel("m")
             bar_echelle.setUnitsPerSegment(250)
-            # self.scalebar_test.setUnits(QgsUnitTypes.DistanceMeters)
-            # self.scalebar_test.setUnitLabel("m")
-            # self.scalebar_test.setUnitsPerSegment(250)
 
         elif echelle.scale() >= 5000:
             bar_echelle.setUnits(QgsUnitTypes.DistanceMeters)
             bar_echelle.setUnitLabel("m")
             bar_echelle.setUnitsPerSegment(100)
-            # self.scalebar_test.setUnits(QgsUnitTypes.DistanceMeters)
-            # self.scalebar_test.setUnitLabel("m")
-            # self.scalebar_test.setUnitsPerSegment(100)
 
         else:
             bar_echelle.setUnits(QgsUnitTypes.DistanceMeters)
             bar_echelle.setUnitLabel("m")
             bar_echelle.setUnitsPerSegment(50)
-            # self.scalebar_test.setUnits(QgsUnitTypes.DistanceMeters)
-            # self.scalebar_test.setUnitLabel("m")
-            # self.scalebar_test.setUnitsPerSegment(50)
-
 
         bar_echelle.update()
-
-
-    def popup_info(self):
-
-        self.dialog = Popup()
-        self.dialog.text_edit.show()
 
     def popup_resolution(self):
 
