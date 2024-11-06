@@ -23,7 +23,7 @@
 
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt, QThread, pyqtSignal, QSize
 from qgis.PyQt.QtGui import QFont, QIcon, QMovie, QColor, QPixmap
-from qgis.PyQt.QtWidgets import QWidget, QAction, QMessageBox, QLabel, QPushButton, QFileDialog, QDialog, QVBoxLayout, QListWidget
+from qgis.PyQt.QtWidgets import QWidget, QAction, QMessageBox, QLabel, QPushButton, QFileDialog, QDialog, QVBoxLayout, QListWidget, QProgressDialog
 from qgis.utils import iface
 from qgis.gui import QgsMapToolPan
 
@@ -68,22 +68,6 @@ except socket.error:
     # Afficher un message si l'utilisateur n'est pas connecté à internet
     QMessageBox.warning(None, 'Avertissement',
                         'Vous n\'êtes actuellement pas connecté à internet. Veuillez vous connecter pour pouvoir utiliser MapCEN !')
-
-
-class LoadingThread(QThread):
-    # Signaux pour démarrer et terminer le chargement
-    started = pyqtSignal()
-    finished = pyqtSignal()
-
-    def __init__(self, plugin_instance, target_function):
-        super().__init__()
-        self.plugin_instance = plugin_instance
-        self.target_function = target_function  # Function to run in the thread
-        
-    def run(self):
-        self.started.emit()  # Démarre l'animation
-        self.target_function()  # Exécute la fonction de chargement
-        self.finished.emit()  # Termine l'animation
 
 class OptionsWindow(QWidget):
     def __init__(self, parent=None):
@@ -205,9 +189,9 @@ class MapCEN:
 
         self.dlg.commandLinkButton.clicked.connect(self.chargement_qpt)
 
-        self.dlg.comboBox_3.currentIndexChanged.connect(self.start_initialisation_with_loading)
+        self.dlg.comboBox_3.currentIndexChanged.connect(self.initialisation)
         self.dlg.commandLinkButton_3.clicked.connect(self.choose_default_authentication)
-        self.dlg.pushButton.clicked.connect(self.start_ajout_couches_with_loading)
+        self.dlg.pushButton.clicked.connect(self.ajout_couches)
         self.dlg.commandLinkButton_4.clicked.connect(self.actualisation_emprise)
 
         self.dlg.commandLinkButton_5.clicked.connect(self.ouverture_composeur)
@@ -233,10 +217,10 @@ class MapCEN:
 
         self.dlg.checkBox.stateChanged.connect(self.ajout_code_sites)
 
+        self.dlg.pushButton_2.clicked.connect(self.masquer_parcelles_voisines)
+
         self.dlg.setMouseTracking(True)
         # self.dlg.mComboBox_4.setEnabled(False)
-
-        self.dlg.checkBox_2.stateChanged.connect(self.masquer_parcelles_voisines)
 
         self.movie = QMovie(
             str(self.plugin_path) + "/icons/underconstruction.gif")  # récupération du gif via le chemin relatif du plugin
@@ -315,13 +299,20 @@ class MapCEN:
             # Add more variables as needed
         }
 
+    def closeEvent(self, event):
+        # Appelle ta fonction lors de la fermeture
+        print("test")
+        # Accepte l'événement de fermeture pour fermer la fenêtre
+        
+        event.accept()
+
     def show_welcome_popup(self):
         """
         Affiche une fenêtre avec une image au démarrage, centre l'image et ajoute un texte en dessous.
         """
         # Créer un QDialog (fenêtre personnalisée)
         dialog = QDialog()
-        dialog.setWindowTitle("MapCEN 2.0")
+        dialog.setWindowTitle("Nouvelle version: MapCEN 3.8 !")
 
         # Créer un layout
         layout = QVBoxLayout()
@@ -496,6 +487,10 @@ class MapCEN:
     def initGui(self):
         """Create the menu entries and toolbar icons inside the QGIS GUI."""
 
+        # Vérifier si c'est le premier démarrage de cette version
+        if self.is_first_run_of_new_version():
+            self.show_welcome_popup()
+
         icon_path = ':/plugins/map_cen/icons/icon.png'
         self.add_action(
             icon_path,
@@ -561,34 +556,6 @@ class MapCEN:
             # Do something useful here - delete the line containing pass and
             # substitute with your code.
             pass
-
-    def start_initialisation_with_loading(self):
-        # Create the thread for loading with initialisation and connect signals
-        self.thread = LoadingThread(self, self.initialisation)
-        self.thread.started.connect(self.show_loading)
-        self.thread.finished.connect(self.hide_loading)
-        
-        # Start the thread
-        self.thread.start()
-
-    def start_ajout_couches_with_loading(self):
-        # Create the thread for loading with ajout_couches and connect signals
-        self.thread = LoadingThread(self, self.ajout_couches)
-        self.thread.started.connect(self.show_loading)
-        self.thread.finished.connect(self.hide_loading)
-        
-        # Start the thread
-        self.thread.start()
-
-    def show_loading(self):
-        """Démarre l'affichage du GIF et l'animation"""
-        self.label_loading.show()
-        self.loading_gif.start()
-
-    def hide_loading(self):
-        """Masque le GIF lorsque le chargement est terminé"""
-        self.loading_gif.stop()
-        self.label_loading.hide()
 
     def load_urls(self, yaml_file):
         # Charger le fichier YAML contenant plusieurs clés
@@ -718,72 +685,86 @@ class MapCEN:
 
     def initialisation(self):
 
+        # Initialize the progress dialog
+        progress_dialog = QProgressDialog("Chargement en cours...", "Annuler", 1, 7, self.dlg)
+        progress_dialog.setWindowTitle("Initialisation")
+        progress_dialog.setWindowModality(Qt.WindowModal)
+        progress_dialog.setValue(1)
+        
+        # Step 1: Set initial radio button states
         self.dlg.radioButton.setChecked(True)
         self.dlg.radioButton.setEnabled(True)
         self.dlg.radioButton_2.setEnabled(True)
         self.dlg.radioButton_3.setEnabled(True)
+        
+        progress_dialog.setValue(2)
+        if progress_dialog.wasCanceled():
+            progress_dialog.close()
+            return  # Exit if the user cancels
 
-
-        if self.dlg.comboBox_3.currentText() == "Périmètres écologiques" :
-            
+        # Step 2: Module initialization based on comboBox_3 selection
+        if self.dlg.comboBox_3.currentText() == "Périmètres écologiques":
             self.module_perim_eco.initialisation()
-
-        elif self.dlg.comboBox_3.currentText() == "Localisation de sites" :
-            
+        elif self.dlg.comboBox_3.currentText() == "Localisation de sites":
             self.module_loc_generale.initialisation()
-
         else:
-
             self.dlg.mComboBox_3.hide()
             self.dlg.label_15.hide()
 
-        # Initialisez `uri` ici avant de le passer à `apply_authentication_if_needed`
+        progress_dialog.setValue(3)
+        if progress_dialog.wasCanceled():
+            progress_dialog.close()
+            return
+
+        # Step 3: Set up the URI and apply authentication
         uri = QgsDataSourceUri()
         uri.setParam("url", "https://opendata.cen-nouvelle-aquitaine.org/geoserver/fonciercen/wfs")
         uri.setParam("typename", "fonciercen:site_gere_point")
-
-        # Appliquer l'authentification
         if not self.apply_authentication_if_needed(uri):
-            return  # Abandonner si l'authentification échoue
+            progress_dialog.close()
+            return  # Exit if authentication fails
+        
+        progress_dialog.setValue(4)
+        if progress_dialog.wasCanceled():
+            progress_dialog.close()
+            return
 
-        # La couche "site géré" est une donnée protégée donc lecture de l'entrée d'authentification pour pouvoir la charger dans QGIS
+        # Step 4: Load the protected layer
         self.vlayer = QgsVectorLayer(uri.uri(), "Sites gérés CEN-NA", "WFS")
+        if not self.vlayer.isValid():
+            QMessageBox.warning(self.dlg, "Erreur de chargement", "Impossible de charger la couche 'Sites gérés CEN-NA'.")
+            progress_dialog.close()
+            return
+        
+        progress_dialog.setValue(5)
+        if progress_dialog.wasCanceled():
+            progress_dialog.close()
+            return
 
-        if QgsProject.instance().mapLayersByName("Sites gérés CEN-NA"):
-            # self.vlayer = QgsProject.instance().mapLayersByName("Sites gérés CEN-NA")[0]
-            iface.messageBar().pushMessage("Couche 'Sites gérés CEN-NA'",
-                                           "La couche 'Sites gérés CEN-NA est déjà chargée dans le canvas QGIS",
-                                           level=Qgis.Success, duration=5)
-        else:
-            QgsProject.instance().addMapLayer(self.vlayer)
-        if not self.vlayer:
-            QMessageBox.question(iface.mainWindow(), u"Erreur !",
-                                 "Impossible de charge la couche 'Sites gérés CEN-NA', veuillez contacter le pôle DSI !",
-                                 QMessageBox.Ok)
-
+        # Step 5: Populate lists for ComboBoxes
         self.listes_sites_MFU = []
-
         for p in self.vlayer.getFeatures():
             nom_site_index = p.fields().indexFromName('nom_site')
             self.listes_sites_MFU.append(str(p[nom_site_index]))
-
-
-        # self.dlg.mComboBox.setLineEdit(self.dlg.lineEdit)
         self.dlg.mComboBox.addItems(self.listes_sites_MFU)
+        
+        progress_dialog.setValue(6)
+        if progress_dialog.wasCanceled():
+            progress_dialog.close()
+            return
 
-        #On clear les combobox ici car à chaque fois que la comboBox_3 est sélectionné cela lance la fonction "intialisation" du script principal "map_cen.py" et les lignes suivantes sont donc ré-éxécutées (duplicats de départements et de site à chaque fois)
-        self.listes_sites_MFU.clear()
+        # Step 6: Populate departments ComboBox
         self.dlg.mComboBox_4.clear()
-
         dpts_NA = ["16 - Charente", "17 - Charente-Maritime", "19 - Corrèze", "23 - Creuse", "24 - Dordogne",
-                   "33 - Gironde", "40 - Landes", "47 - Lot-et-Garonne", "64 - Pyrénées-Atlantique", "79 - Deux-Sèvres",
-                   "86 - Vienne", "87 - Haute-Vienne"]
-
+                "33 - Gironde", "40 - Landes", "47 - Lot-et-Garonne", "64 - Pyrénées-Atlantique", "79 - Deux-Sèvres",
+                "86 - Vienne", "87 - Haute-Vienne"]
         self.dlg.mComboBox_4.addItems(dpts_NA)
+        
+        progress_dialog.setValue(7)
 
-        self.dlg.commandLinkButton_4.setEnabled(False)
+        # Close the progress dialog when initialization is complete
+        progress_dialog.close()
 
-        iface.mapCanvas().refresh()
         
     def ajout_code_sites(self):
 
@@ -810,7 +791,7 @@ class MapCEN:
 
         ### -------------------- Chargement des sites fonciercen ---------------------- ###
 
-        # Initialisez `uri` ici avant de le passer à `apply_authentication_if_needed`
+        # Initialisation de `uri` ici avant de le passer à `apply_authentication_if_needed`
         uri = QgsDataSourceUri()
         uri.setParam("url", "https://opendata.cen-nouvelle-aquitaine.org/geoserver/fonciercen/wfs")
         uri.setParam("typename", "fonciercen:mfu_cenna")
@@ -819,43 +800,45 @@ class MapCEN:
         if not self.apply_authentication_if_needed(uri):
             return  # Abandonner si l'authentification échoue
 
-        self.layer = QgsVectorLayer(uri.uri(), "Parcelles CEN NA en MFU", "WFS")
+        # Vérifier si les couches sont déjà présentes
+        couche_parcelles_existe = QgsProject.instance().mapLayersByName("Parcelles CEN NA en MFU")
+        depts_existe = QgsProject.instance().mapLayersByName("Département")
 
-        # méthode plus rapide pour charger layer que QgsProject.instance().addMapLayer(layer) :
-        if QgsProject.instance().mapLayersByName("Parcelles CEN NA en MFU"):
-            self.layer = QgsProject.instance().mapLayersByName("Parcelles CEN NA en MFU")[0]
-            iface.messageBar().pushMessage("Couche 'Parcelles CEN NA en MFU'", "La couche 'Parcelles CEN NA en MFU' est déjà chargée dans le canvas QGIS", level=Qgis.Success, duration=5)
+        if couche_parcelles_existe and depts_existe:
+            # Si les deux couches sont déjà chargées, on affiche un message et on quitte la fonction
+            iface.messageBar().pushMessage("Couches déjà chargées", "Les couches 'Parcelles CEN NA en MFU' et 'Département' sont déjà présentes dans le canevas QGIS.", level=Qgis.Success, duration=5)
+            return
 
+        # Chargement ou récupération de la couche 'Parcelles CEN NA en MFU'
+        if couche_parcelles_existe:
+            self.layer = couche_parcelles_existe[0]
+            iface.messageBar().pushMessage("Couche 'Parcelles CEN NA en MFU'", "La couche 'Parcelles CEN NA en MFU' est déjà chargée dans le canevas QGIS.", level=Qgis.Success, duration=5)
         else:
-            self.layer = QgsProject.instance().addMapLayer(self.layer)
+            self.layer = QgsVectorLayer(uri.uri(), "Parcelles CEN NA en MFU", "WFS")
+            if not self.layer or not self.layer.isValid():
+                QMessageBox.critical(iface.mainWindow(), "Erreur de chargement", "Impossible de charger la couche 'Parcelles CEN NA en MFU'. Veuillez contacter le pôle DSI !", QMessageBox.Ok)
+                return
+            QgsProject.instance().addMapLayer(self.layer)
+            self.layer.loadNamedStyle(self.plugin_path + '/styles_couches/mfu_cenna.qml')
+            self.layer.triggerRepaint()
 
-        if not self.layer:
-            # QMessageBox.question(iface.mainWindow(), u"Erreur !", "Impossible de charger la couche %s, veuillez contacter le pôle DSI !" % self.dlg.comboBox.currentText(), QMessageBox.Ok)
-            QMessageBox.question(iface.mainWindow(), u"Erreur !", "Impossible de charger la couche 'Parcelles CEN NA en MFU', veuillez contacter le pôle DSI !", QMessageBox.Ok)
-
-        self.layer.loadNamedStyle(self.plugin_path + '/styles_couches/mfu_cenna.qml')
-        self.layer.triggerRepaint()
-
-
-        if QgsProject.instance().mapLayersByName("Département"):
-            self.depts_NA = QgsProject.instance().mapLayersByName("Département")[0]
-            iface.messageBar().pushMessage("Couche 'Département'", "La couche 'Département' est déjà chargée dans le canvas QGIS", level=Qgis.Success, duration=5)
-
+        # Chargement ou récupération de la couche 'Département'
+        if depts_existe:
+            self.depts_NA = depts_existe[0]
+            iface.messageBar().pushMessage("Couche 'Département'", "La couche 'Département' est déjà chargée dans le canevas QGIS.", level=Qgis.Success, duration=5)
         else:
             self.depts_NA = iface.addVectorLayer(
-            "https://opendata.cen-nouvelle-aquitaine.org/administratif/wfs?VERSION=1.0.0&TYPENAME=administratif:departement&SRSNAME=EPSG:4326&request=GetFeature",
-            "Département", "WFS")
-        if not self.depts_NA:
-            QMessageBox.question(iface.mainWindow(), u"Erreur !", "Impossible de charge la couche 'Département', veuillez contacter le pôle DSI !", QMessageBox.Ok)
+                "https://opendata.cen-nouvelle-aquitaine.org/administratif/wfs?VERSION=1.0.0&TYPENAME=administratif:departement&SRSNAME=EPSG:4326&request=GetFeature",
+                "Département", "WFS")
+            if not self.depts_NA or not self.depts_NA.isValid():
+                QMessageBox.critical(iface.mainWindow(), "Erreur de chargement", "Impossible de charger la couche 'Département'. Veuillez contacter le pôle DSI !", QMessageBox.Ok)
+                return
 
-
+        # Chargement conditionnel du module 'Périmètres écologiques' en fonction de la sélection dans comboBox_3
         if self.dlg.comboBox_3.currentText() == "Périmètres écologiques":
-
             self.module_perim_eco.chargement_perim_eco()
 
-        else:
-            return None
-        
+        # Rafraîchir le canevas de la carte
         iface.mapCanvas().refresh()
 
     def onTextChanged(self, filter_text):
@@ -874,36 +857,39 @@ class MapCEN:
 
     def actualisation_emprise(self):
 
+        self.dlg.pushButton_2.setEnabled(True)
+
+
         if len(self.dlg.mComboBox.checkedItems()) < 1:
             QMessageBox.question(iface.mainWindow(), u"Attention !", "Veuillez sélectionner au moins un site CEN !", QMessageBox.Ok)
 
         else :
-                
-            self.vlayer.removeSelection()
-            self.layer.removeSelection()
 
-            # if self.dlg.lineEdit.text() not in self.listes_sites_MFU:
-            #     QMessageBox.question(iface.mainWindow(), u"Nom de site invalide", "Renseigner un nom de site CEN-NA valide !", QMessageBox.Ok)
-
-            ### -------------------- Choix et ajout des fonds de carte ---------------------- ###
+            if QgsProject.instance().mapLayersByName("Sites gérés CEN-NA"):
+                self.vlayer.removeSelection()
+                print("La couche 'Sites gérés CEN-NA est déjà chargée dans le canvas QGIS")
+            else:
+                QgsProject.instance().addMapLayer(self.vlayer)
+            if not self.vlayer:
+                QMessageBox.question(iface.mainWindow(), u"Erreur !",
+                                    "Impossible de charge la couche 'Sites gérés CEN-NA', veuillez contacter le pôle DSI !",
+                                    QMessageBox.Ok)
 
             if self.dlg.radioButton.isChecked() == True:
-                uri = "url=https://data.geopf.fr/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities&service=WMS&version=1.3.0&crs=EPSG:2154&format=image/png&layers=ORTHOIMAGERY.ORTHOPHOTOS.ORTHO-EXPRESS.2023&styles"
-                # tms = 'type=xyz&zmin=0&zmax=20&url=https://mt1.google.com/vt/lyrs%3Ds%26x%3D{x}%26y%3D{y}%26z%3D{z}'
-                self.fond = QgsRasterLayer(uri, "Fond ortho IGN 2023", 'wms')
+                uri = "url=https://data.geopf.fr/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities&service=WMS&version=1.3.0&crs=EPSG:2154&format=image/png&layers=HR.ORTHOIMAGERY.ORTHOPHOTOS&styles"
+                self.fond = QgsRasterLayer(uri, "BD Ortho IGN", 'wms')
 
-                if not QgsProject.instance().mapLayersByName("Fond ortho IGN 2023"):
+                if not QgsProject.instance().mapLayersByName("BD Ortho IGN"):
                     QgsProject.instance().addMapLayer(self.fond)
                 else:
-                    print("Le fond de carte 'Fond ortho IGN 2023' est déjà chargé")
+                    print("Le fond de carte 'BD Ortho IGN' est déjà chargé")
 
-                fond_carte = QgsProject.instance().mapLayersByName("Fond ortho IGN 2023")[0]
+                fond_carte = QgsProject.instance().mapLayersByName("BD Ortho IGN")[0]
 
             else :
                 for lyr in QgsProject.instance().mapLayers().values():
-                    if lyr.name() == "Fond ortho IGN 2023":
+                    if lyr.name() == "BD Ortho IGN":
                         QgsProject.instance().removeMapLayers([lyr.id()])
-
 
             if self.dlg.radioButton_2.isChecked() == True:
 
@@ -922,7 +908,6 @@ class MapCEN:
                     if lyr.name() == "OSM":
                         QgsProject.instance().removeMapLayers([lyr.id()])
 
-
             if self.dlg.radioButton_3.isChecked() == True:
 
                 uri = 'url=https://opendata.cen-nouvelle-aquitaine.org/geoserver/fond_carto/wms?service=WMS+Raster&version=1.0.0&crs=EPSG:2154&format=image/png&layers=SCAN25TOUR_PYR-JPEG_WLD_WM&styles'
@@ -939,7 +924,6 @@ class MapCEN:
                 for lyr in QgsProject.instance().mapLayers().values():
                     if lyr.name() == "SCAN25 IGN":
                         QgsProject.instance().removeMapLayers([lyr.id()])
-
 
             if self.dlg.radioButton_4.isChecked() == True:
 
@@ -980,57 +964,70 @@ class MapCEN:
             parent.insertChildNode(0, myClone)
             parent.removeChildNode(departements_NA)
 
-            # ### Zoom sur emprise du ou des sites CEN selectionnés:
+        self.zoom_emprise_sites_selectionnes()
 
-            selected_values = []
+    def zoom_emprise_sites_selectionnes(self):
+        self.layer.setSubsetString('')
+        self.layer.removeSelection()
+        # ### Zoom sur emprise du ou des sites CEN selectionnés:
 
-            # Vérifie la sélection dans mComboBox et collecte les valeurs `codesite` ou `nom_site`
-            for sites in self.dlg.mComboBox.checkedItems():
-                if self.dlg.checkBox.isChecked():
-                    # Utilise `codesite` comme critère de sélection
-                    self.vlayer.selectByExpression('"codesite"= \'{0}\''.format(sites.replace("'", "''")), QgsVectorLayer.AddToSelection)
-                    selected_values.append(sites)
-                else:
-                    # Utilise `nom_site` comme critère de sélection
-                    self.vlayer.selectByExpression('"nom_site"= \'{0}\''.format(sites.replace("'", "''")), QgsVectorLayer.AddToSelection)
-                    selected_values.append(sites)
+        for sites in self.dlg.mComboBox.checkedItems():
+            if self.dlg.checkBox.isChecked():
+                self.vlayer.selectByExpression('"codesite"= \'{0}\''.format(sites.replace("'", "''")), QgsVectorLayer.AddToSelection)
+                self.layer.selectByExpression('"codesite"= \'{0}\''.format(sites.replace("'", "''")), QgsVectorLayer.AddToSelection)
 
-            # Zoom sur les entités sélectionnées
-            iface.mapCanvas().zoomToSelected(self.vlayer)
-            QgsProject.instance().setCrs(QgsCoordinateReferenceSystem(2154))
+            else:
+                self.vlayer.selectByExpression('"nom_site"= \'{0}\''.format(sites.replace("'", "''")), QgsVectorLayer.AddToSelection)
+                self.layer.selectByExpression('"nom_site"= \'{0}\''.format(sites.replace("'", "''")), QgsVectorLayer.AddToSelection)
 
-            # Définir le champ de filtrage basé sur `codesite` ou `nom_site`
-            field_name = "codesite" if self.dlg.checkBox.isChecked() else "nom_site"
+        iface.mapCanvas().zoomToSelected(self.layer)
 
-            # Crée l'expression de filtrage en fonction des valeurs sélectionnées
-            values_str = ", ".join([f"'{value}'" for value in selected_values])
-            expression = f"\"{field_name}\" IN ({values_str})"  # Expression dynamique en fonction du champ
+        QgsProject.instance().setCrs(QgsCoordinateReferenceSystem(2154))
 
-            # Crée un symbole pour styliser les points en rouge
-            symbol = QgsSymbol.defaultSymbol(self.vlayer.geometryType())
-            symbol.setColor(QColor("red"))
+        self.pointage_sites_selectiones()
 
-            # Crée un renderer basé sur des règles
-            renderer = QgsRuleBasedRenderer(symbol)
+    def pointage_sites_selectiones(self):
+            
+        rules = (
+            ('Site CEN sélectionné', "is_selected()", 'red'),
+        )
 
-            # Accède à la règle racine
-            root_rule = renderer.rootRule()
+        # create a new rule-based renderer
+        symbol = QgsSymbol.defaultSymbol(self.vlayer.geometryType())
+        renderer = QgsRuleBasedRenderer(symbol)
 
-            # Crée une règle avec l'expression et le style
+        # get the "root" rule
+        root_rule = renderer.rootRule()
+
+        for label, expression, color_name in rules:
+            # create a clone (i.e. a copy) of the default rule
             rule = root_rule.children()[0].clone()
-            rule.setLabel("Site CEN sélectionné")  # Label de la règle
-            rule.setFilterExpression(expression)  # Filtre basé sur l'expression
-            rule.symbol().setColor(QColor("red"))  # Couleur rouge pour le symbole
-
-            # Ajoute la règle au renderer
+            # set the label, expression and color
+            rule.setLabel(label)
+            rule.setFilterExpression(expression)
+            symbol_layer = rule.symbol().symbolLayer(0)
+            color = symbol_layer.color()
+            generator = QgsGeometryGeneratorSymbolLayer.create({})
+            generator.setSymbolType(QgsSymbol.Marker)
+            generator.setGeometryExpression("centroid($geometry)")
+            generator.setColor(QColor('Red'))
+            rule.symbol().setColor(QColor(color_name))
+            # set the scale limits if they have been specified
+            # append the rule to the list of rules
+            rule.symbol().changeSymbolLayer(0, generator)
             root_rule.appendChild(rule)
 
-            # Supprime la règle par défaut
-            root_rule.removeChildAt(0)
+        # delete the default rule
+        root_rule.removeChildAt(0)
 
-            # Applique le renderer à la couche et rafraîchit l'affichage
-            self.vlayer.setRenderer(renderer)
-            self.vlayer.triggerRepaint()
+        # apply the renderer to the layer
+        self.vlayer.setRenderer(renderer)
+        # refresh the layer on the map canvas
+        self.vlayer.triggerRepaint()
+
+        self.choix_type_mise_en_page()
+
+    def choix_type_mise_en_page(self):
 
             if self.dlg.comboBox_3.currentText() == "Périmètres écologiques":
                 self.module_perim_eco.mise_en_page()
@@ -1039,30 +1036,27 @@ class MapCEN:
             else:
                 self.mise_en_page()
 
+
     def masquer_parcelles_voisines(self):
-        # Vérifie si checkBox_2 est coché
-        if self.dlg.checkBox_2.isChecked():
-            # Récupère les sites sélectionnés
-            selected_sites = [site.replace("'", "''") for site in self.dlg.mComboBox.checkedItems()]
 
-            # Applique le filtre seulement s'il y a des sites sélectionnés
-            if selected_sites:
-                # Filtrer par code ou nom de site selon l'état de checkBox
-                if self.dlg.checkBox.isChecked():
-                    filter_expression = '"codesite" IN ({0})'.format(", ".join(f"'{site}'" for site in selected_sites))
-                else:
-                    filter_expression = '"nom_site" IN ({0})'.format(", ".join(f"'{site}'" for site in selected_sites))
+        selected_sites = [site.replace("'", "''") for site in self.dlg.mComboBox.checkedItems()]
 
-                # Appliquer le filtre
-                self.layer.setSubsetString(filter_expression)
+        if selected_sites:
+            # Filtrer par code ou nom de site selon l'état de la checkBox
+            if self.dlg.checkBox.isChecked():
+                filter_expression = '"codesite" IN ({0})'.format(", ".join(f"'{site}'" for site in selected_sites))
             else:
-                # Afficher un message si aucun site n'est sélectionné
-                QMessageBox.information(iface.mainWindow(), "Aucun site sélectionné", "Veuillez sélectionner au moins un site CEN pour appliquer le filtre.", QMessageBox.Ok)
+                filter_expression = '"nom_site" IN ({0})'.format(", ".join(f"'{site}'" for site in selected_sites))
+
+            # Appliquer le filtre sur la couche
+            self.layer.setSubsetString(filter_expression)
         else:
-            # Si checkBox_2 est décoché, supprimer le filtre
-            self.layer.setSubsetString("")
-            
+            QMessageBox.information(iface.mainWindow(), "Aucun site sélectionné", "Veuillez sélectionner au moins un site CEN pour appliquer le filtre.", QMessageBox.Ok)
+
+        # Rafraîchir la carte pour afficher uniquement les parcelles sélectionnées
+        iface.mapCanvas().refresh()
         self.mise_en_page()
+
 
     def mise_en_page(self):
 
@@ -1299,13 +1293,6 @@ class MapCEN:
         credit_text2.attemptMove(QgsLayoutPoint(191, 204, QgsUnitTypes.LayoutMillimeters))
         credit_text2.adjustSizeToText()
         # credit_text2.attemptResize(QgsLayoutSize(150, 4, QgsUnitTypes.LayoutMillimeters))
-
-
-        for sites in self.dlg.mComboBox.checkedItems():
-            if self.dlg.checkBox.isChecked():
-                self.vlayer.selectByExpression('"codesite"= \'{0}\''.format(sites.replace("'", "''")), QgsVectorLayer.AddToSelection)
-            else :
-                self.vlayer.selectByExpression('"nom_site"= \'{0}\''.format(sites.replace("'", "''")), QgsVectorLayer.AddToSelection)
 
         temp_layer = self.vlayer.materialize(QgsFeatureRequest().setFilterFids(self.vlayer.selectedFeatureIds()))
 

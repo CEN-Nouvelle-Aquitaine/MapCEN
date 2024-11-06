@@ -621,27 +621,6 @@ QWidget#tab_3{background-image: url(:/plugins/map_cen/background_plugin.PNG)}</s
       </size>
      </property>
     </widget>
-    <widget class="QCheckBox" name="checkBox_2">
-     <property name="geometry">
-      <rect>
-       <x>440</x>
-       <y>40</y>
-       <width>281</width>
-       <height>17</height>
-      </rect>
-     </property>
-     <property name="font">
-      <font>
-       <pointsize>7</pointsize>
-      </font>
-     </property>
-     <property name="toolTip">
-      <string/>
-     </property>
-     <property name="text">
-      <string>Exclure les autres sites à proximité</string>
-     </property>
-    </widget>
     <widget class="QCommandLinkButton" name="commandLinkButton_7">
      <property name="geometry">
       <rect>
@@ -675,6 +654,45 @@ QWidget#tab_3{background-image: url(:/plugins/map_cen/background_plugin.PNG)}</s
       </size>
      </property>
     </widget>
+    <widget class="QPushButton" name="pushButton_2">
+     <property name="enabled">
+      <bool>false</bool>
+     </property>
+     <property name="geometry">
+      <rect>
+       <x>440</x>
+       <y>40</y>
+       <width>20</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string/>
+     </property>
+     <property name="icon">
+      <iconset resource="resources.qrc">
+       <normaloff>:/plugins/map_cen/icons/refresh.png</normaloff>:/plugins/map_cen/icons/refresh.png</iconset>
+     </property>
+     <property name="iconSize">
+      <size>
+       <width>25</width>
+       <height>25</height>
+      </size>
+     </property>
+    </widget>
+    <widget class="QLabel" name="label_17">
+     <property name="geometry">
+      <rect>
+       <x>470</x>
+       <y>40</y>
+       <width>221</width>
+       <height>21</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Exclure les autres sites à proximité</string>
+     </property>
+    </widget>
     <zorder>graphicsView</zorder>
     <zorder>groupBox_5</zorder>
     <zorder>groupBox_2</zorder>
@@ -684,8 +702,9 @@ QWidget#tab_3{background-image: url(:/plugins/map_cen/background_plugin.PNG)}</s
     <zorder>label_9</zorder>
     <zorder>label_10</zorder>
     <zorder>commandLinkButton_3</zorder>
-    <zorder>checkBox_2</zorder>
     <zorder>commandLinkButton_7</zorder>
+    <zorder>pushButton_2</zorder>
+    <zorder>label_17</zorder>
    </widget>
    <widget class="QWidget" name="tab_2">
     <attribute name="title">
