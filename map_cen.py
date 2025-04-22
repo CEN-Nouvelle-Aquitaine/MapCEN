@@ -55,7 +55,7 @@ from datetime import date
 
 from .carto_perimetres_ecologiques import module_perim_eco
 from .carto_localisation_generale import module_loc_generale
-
+from .carto_travaux import module_travaux
 
 
 # Vérifier la connexion à internet
@@ -184,6 +184,9 @@ class MapCEN:
         self.module_loc_generale = module_loc_generale()
         self.module_loc_generale.dlg = self.dlg
 
+        self.module_travaux = module_travaux()
+        self.module_travaux.dlg = self.dlg
+
         # module_perim_eco.dlg = self.dlg
         self.plugin_path = os.path.dirname(__file__)
 
@@ -210,7 +213,7 @@ class MapCEN:
 
         self.dlg.mComboBox_3.hide()
 
-        self.dlg.comboBox_3.addItems(["MFU", "Localisation de sites", "Périmètres écologiques"])
+        self.dlg.comboBox_3.addItems(["MFU", "Localisation de sites", "Périmètres écologiques", "Travaux"])
 
         self.dlg.comboBox_3.model().item(0).setEnabled(False)
         # self.dlg.lineEdit.textChanged.connect(self.onTextChanged)
@@ -312,7 +315,7 @@ class MapCEN:
         """
         # Créer un QDialog (fenêtre personnalisée)
         dialog = QDialog()
-        dialog.setWindowTitle("Nouvelle version: MapCEN 3.8 !")
+        dialog.setWindowTitle("Nouvelle version: MapCEN 3.9 !")
 
         # Créer un layout
         layout = QVBoxLayout()
@@ -648,7 +651,7 @@ class MapCEN:
                                  QMessageBox.Ok)
 
         if self.dlg.mComboBox_4.currentIndex != -1:
-            for p in self.vlayer.getFeatures(QgsFeatureRequest().setFilterExpression(expression_filtre)):
+            for p in self.sites_gere_centroid_layer.getFeatures(QgsFeatureRequest().setFilterExpression(expression_filtre)):
 
                 codesite_index = p.fields().indexFromName('codesite')
                 nom_site_index = p.fields().indexFromName('nom_site')
@@ -658,10 +661,10 @@ class MapCEN:
                 else:
                     self.listes_sites_MFU_filtered.append(str(p[nom_site_index]))
 
-            print(self.vlayer.selectedFeatures())
+            print(self.sites_gere_centroid_layer.selectedFeatures())
 
         else:
-            for p in self.vlayer.getFeatures():
+            for p in self.sites_gere_centroid_layer.getFeatures():
 
                 codesite_index = p.fields().indexFromName('codesite')
                 nom_site_index = p.fields().indexFromName('nom_site')
@@ -671,17 +674,18 @@ class MapCEN:
                 else:
                     self.listes_sites_MFU_filtered.append(str(p[nom_site_index]))
 
-            print(self.vlayer.selectedFeatures()[0])
+            print(self.sites_gere_centroid_layer.selectedFeatures()[0])
 
         # print(self.dlg.mComboBox.checkedItems())
-        # print(self.vlayer.selectedFeatures()[0])
-        # print(self.vlayer.selectedFeatures()[0]["codesite"][:2])
+        # print(self.sites_gere_centroid_layer.selectedFeatures()[0])
+        # print(self.sites_gere_centroid_layer.selectedFeatures()[0]["codesite"][:2])
 
         self.dlg.mComboBox.clear()
 
         self.listes_sites_MFU_filtered.sort()
 
         self.dlg.mComboBox.addItems(self.listes_sites_MFU_filtered)
+    
 
     def initialisation(self):
 
@@ -707,6 +711,8 @@ class MapCEN:
             self.module_perim_eco.initialisation()
         elif self.dlg.comboBox_3.currentText() == "Localisation de sites":
             self.module_loc_generale.initialisation()
+        elif self.dlg.comboBox_3.currentText() == "Travaux":
+            self.module_travaux.initialisation()
         else:
             self.dlg.mComboBox_3.hide()
             self.dlg.label_15.hide()
@@ -730,8 +736,8 @@ class MapCEN:
             return
 
         # Step 4: Load the protected layer
-        self.vlayer = QgsVectorLayer(uri.uri(), "Sites gérés CEN-NA", "WFS")
-        if not self.vlayer.isValid():
+        self.sites_gere_centroid_layer = QgsVectorLayer(uri.uri(), "Sites gérés CEN-NA", "WFS")
+        if not self.sites_gere_centroid_layer.isValid():
             QMessageBox.warning(self.dlg, "Erreur de chargement", "Impossible de charger la couche 'Sites gérés CEN-NA'.")
             progress_dialog.close()
             return
@@ -743,7 +749,7 @@ class MapCEN:
 
         # Step 5: Populate lists for ComboBoxes
         self.listes_sites_MFU = []
-        for p in self.vlayer.getFeatures():
+        for p in self.sites_gere_centroid_layer.getFeatures():
             nom_site_index = p.fields().indexFromName('nom_site')
             self.listes_sites_MFU.append(str(p[nom_site_index]))
         self.dlg.mComboBox.addItems(self.listes_sites_MFU)
@@ -772,12 +778,12 @@ class MapCEN:
         # self.dlg.mComboBox.clear()
 
         if self.dlg.checkBox.isChecked():
-            for p in self.vlayer.getFeatures():
+            for p in self.sites_gere_centroid_layer.getFeatures():
                 codesite_index = p.fields().indexFromName('codesite')
                 self.listes_sites_MFU.append(str(p[codesite_index]))
 
         else:
-            for p in self.vlayer.getFeatures():
+            for p in self.sites_gere_centroid_layer.getFeatures():
                 nom_site_index = p.fields().indexFromName('nom_site')
                 self.listes_sites_MFU.append(str(p[nom_site_index]))
 
@@ -851,149 +857,179 @@ class MapCEN:
 
         # retain checked items
         for checked_item in checked_items:
-            index = self.dlg.mComboBox.findText(checked_item)
-            if index > -1:
-                self.dlg.mComboBox.setItemCheckState(index, Qt.Checked)
+            parent = parcelles_MFU.parent()
+            parent.insertChildNode(1, myClone)
+            parent.removeChildNode(parcelles_MFU)
 
-    def actualisation_emprise(self):
+        # On place la couche "Depts_NA" en première dans le gestionnaire des couches
+        departements_NA = root.findLayer(self.depts_NA.id())
+        if departements_NA:
+            myClone = departements_NA.clone()
+            parent = departements_NA.parent()
+            parent.insertChildNode(0, myClone)
+            parent.removeChildNode(departements_NA)
+            
+    def charger_fond_carte(self):
+        """
+        Charge le fond de carte approprié en fonction du bouton radio sélectionné
+        et retourne la référence à ce fond de carte.
+        """
+        fond_carte = None
+        
+        # Chargement du fond de carte en fonction du bouton radio sélectionné
+        if self.dlg.radioButton.isChecked() == True:
+            uri = "url=https://data.geopf.fr/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities&service=WMS&version=1.3.0&crs=EPSG:2154&format=image/png&layers=HR.ORTHOIMAGERY.ORTHOPHOTOS&styles"
+            self.fond = QgsRasterLayer(uri, "BD Ortho IGN", 'wms')
 
-        self.dlg.pushButton_2.setEnabled(True)
-
-
-        if len(self.dlg.mComboBox.checkedItems()) < 1:
-            QMessageBox.question(iface.mainWindow(), u"Attention !", "Veuillez sélectionner au moins un site CEN !", QMessageBox.Ok)
-
-        else :
-
-            if QgsProject.instance().mapLayersByName("Sites gérés CEN-NA"):
-                self.vlayer.removeSelection()
-                print("La couche 'Sites gérés CEN-NA est déjà chargée dans le canvas QGIS")
+            if not QgsProject.instance().mapLayersByName("BD Ortho IGN"):
+                QgsProject.instance().addMapLayer(self.fond)
             else:
-                QgsProject.instance().addMapLayer(self.vlayer)
-            if not self.vlayer:
-                QMessageBox.question(iface.mainWindow(), u"Erreur !",
-                                    "Impossible de charge la couche 'Sites gérés CEN-NA', veuillez contacter le pôle DSI !",
-                                    QMessageBox.Ok)
+                print("Le fond de carte 'BD Ortho IGN' est déjà chargé")
 
-            if self.dlg.radioButton.isChecked() == True:
-                uri = "url=https://data.geopf.fr/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities&service=WMS&version=1.3.0&crs=EPSG:2154&format=image/png&layers=HR.ORTHOIMAGERY.ORTHOPHOTOS&styles"
-                self.fond = QgsRasterLayer(uri, "BD Ortho IGN", 'wms')
+            fond_carte = QgsProject.instance().mapLayersByName("BD Ortho IGN")[0]
 
-                if not QgsProject.instance().mapLayersByName("BD Ortho IGN"):
-                    QgsProject.instance().addMapLayer(self.fond)
-                else:
-                    print("Le fond de carte 'BD Ortho IGN' est déjà chargé")
+        elif self.dlg.radioButton_2.isChecked() == True:
+            tms = 'type=xyz&url=https://tile.openstreetmap.org/{z}/{x}/{y}.png&zmax=19&zmin=0'
+            self.fond = QgsRasterLayer(tms, 'OSM', 'wms')
 
-                fond_carte = QgsProject.instance().mapLayersByName("BD Ortho IGN")[0]
+            if not QgsProject.instance().mapLayersByName("OSM"):
+                QgsProject.instance().addMapLayer(self.fond)
+            else:
+                print("Le fond de carte OSM est déjà chargé")
 
-            else :
-                for lyr in QgsProject.instance().mapLayers().values():
-                    if lyr.name() == "BD Ortho IGN":
-                        QgsProject.instance().removeMapLayers([lyr.id()])
+            fond_carte = QgsProject.instance().mapLayersByName("OSM")[0]
 
-            if self.dlg.radioButton_2.isChecked() == True:
+        elif self.dlg.radioButton_3.isChecked() == True:
+            uri = 'url=https://opendata.cen-nouvelle-aquitaine.org/geoserver/fond_carto/wms?service=WMS+Raster&version=1.0.0&crs=EPSG:2154&format=image/png&layers=SCAN25TOUR_PYR-JPEG_WLD_WM&styles'
+            self.fond = QgsRasterLayer(uri, "SCAN25 IGN", "wms")
 
-                tms = 'type=xyz&url=https://tile.openstreetmap.org/{z}/{x}/{y}.png&zmax=19&zmin=0'
-                self.fond = QgsRasterLayer(tms, 'OSM', 'wms')
+            if not QgsProject.instance().mapLayersByName("SCAN25 IGN"):
+                QgsProject.instance().addMapLayer(self.fond)
+            else:
+                print("Le fond de carte SCAN25 IGN est déjà chargé")
 
-                if not QgsProject.instance().mapLayersByName("OSM"):
-                    QgsProject.instance().addMapLayer(self.fond)
-                else:
-                    print("Le fond de carte OSM est déjà chargé")
+            fond_carte = QgsProject.instance().mapLayersByName("SCAN25 IGN")[0]
 
-                fond_carte = QgsProject.instance().mapLayersByName("OSM")[0]
+        elif self.dlg.radioButton_4.isChecked() == True:
+            uri = 'url=https://data.geopf.fr/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities&service=WMS&version=1.3.0&crs=EPSG:2154&format=image/png&layers=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&styles'
+            self.fond = QgsRasterLayer(uri, "Plan IGN", "wms")
 
-            else :
-                for lyr in QgsProject.instance().mapLayers().values():
-                    if lyr.name() == "OSM":
-                        QgsProject.instance().removeMapLayers([lyr.id()])
+            if not QgsProject.instance().mapLayersByName("Plan IGN"):
+                QgsProject.instance().addMapLayer(self.fond)
+            else:
+                print("Le fond de carte 'Plan IGN' est déjà chargé")
 
-            if self.dlg.radioButton_3.isChecked() == True:
-
-                uri = 'url=https://opendata.cen-nouvelle-aquitaine.org/geoserver/fond_carto/wms?service=WMS+Raster&version=1.0.0&crs=EPSG:2154&format=image/png&layers=SCAN25TOUR_PYR-JPEG_WLD_WM&styles'
-                self.fond = QgsRasterLayer(uri, "SCAN25 IGN", "wms")
-
-                if not QgsProject.instance().mapLayersByName("SCAN25 IGN"):
-                    QgsProject.instance().addMapLayer(self.fond)
-                else:
-                    print("Le fond de carte SCAN25 IGN est déjà chargé")
-
-                fond_carte = QgsProject.instance().mapLayersByName("SCAN25 IGN")[0]
-
-            else :
-                for lyr in QgsProject.instance().mapLayers().values():
-                    if lyr.name() == "SCAN25 IGN":
-                        QgsProject.instance().removeMapLayers([lyr.id()])
-
-            if self.dlg.radioButton_4.isChecked() == True:
-
-                uri = 'url=https://data.geopf.fr/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities&service=WMS&version=1.3.0&crs=EPSG:2154&format=image/png&layers=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&styles'
-                self.fond = QgsRasterLayer(uri, "Plan IGN", "wms")
-
-                if not QgsProject.instance().mapLayersByName("Plan IGN"):
-                    QgsProject.instance().addMapLayer(self.fond)
-                else:
-                    print("Le fond de carte 'Plan IGN' est déjà chargé")
-
-                fond_carte = QgsProject.instance().mapLayersByName("Plan IGN")[0]
-
-            else :
-                for lyr in QgsProject.instance().mapLayers().values():
-                    if lyr.name() == "Plan IGN":
-                        QgsProject.instance().removeMapLayers([lyr.id()])
-
-            # Ordre des couches dans gestionnaires couches : fond de carte sous les autres couches
-            root = QgsProject.instance().layerTreeRoot()
-            fond_carte = root.findLayer(fond_carte.id())
-            myClone = fond_carte.clone()
-            parent = fond_carte.parent()
+            fond_carte = QgsProject.instance().mapLayersByName("Plan IGN")[0]
+            
+        return fond_carte
+        
+    def organiser_couches(self, fond_carte):
+        """
+        Organise les couches dans le gestionnaire de couches QGIS
+        """
+        if not fond_carte:
+            return
+            
+        # Ordre des couches dans gestionnaires couches : fond de carte sous les autres couches
+        root = QgsProject.instance().layerTreeRoot()
+        fond_carte_node = root.findLayer(fond_carte.id())
+        
+        if fond_carte_node:
+            myClone = fond_carte_node.clone()
+            parent = fond_carte_node.parent()
             parent.insertChildNode(-1, myClone)
-            parent.removeChildNode(fond_carte)
+            parent.removeChildNode(fond_carte_node)
 
-            # On place la couche "Parcelles MFU" en deuxième dans le gestionnaire des couches
-            parcelles_MFU = root.findLayer(self.layer.id())
+        # On place la couche "Parcelles MFU" en deuxième dans le gestionnaire des couches
+        parcelles_MFU = root.findLayer(self.layer.id())
+        if parcelles_MFU:
             myClone = parcelles_MFU.clone()
             parent = parcelles_MFU.parent()
             parent.insertChildNode(1, myClone)
             parent.removeChildNode(parcelles_MFU)
 
-            # On place la couche "Depts_NA" en première dans le gestionnaire des couches
-            departements_NA = root.findLayer(self.depts_NA.id())
+        # On place la couche "Depts_NA" en première dans le gestionnaire des couches
+        departements_NA = root.findLayer(self.depts_NA.id())
+        if departements_NA:
             myClone = departements_NA.clone()
             parent = departements_NA.parent()
             parent.insertChildNode(0, myClone)
             parent.removeChildNode(departements_NA)
+    
+    def actualisation_emprise(self):
+        """
+        Méthode principale pour actualiser l'emprise de la carte
+        
+        Returns:
+            QgsRasterLayer: Le fond de carte chargé ou None en cas d'erreur
+        """
+        self.dlg.pushButton_2.setEnabled(True)
+
+        # Vérifier la sélection de sites CEN uniquement si mComboBox est activé
+        if self.dlg.mComboBox.isEnabled() and len(self.dlg.mComboBox.checkedItems()) < 1:
+            QMessageBox.question(iface.mainWindow(), u"Attention !", "Veuillez sélectionner au moins un site CEN !", QMessageBox.Ok)
+            return None
+
+        # Vérifier et charger la couche des sites CEN
+        if QgsProject.instance().mapLayersByName("Sites gérés CEN-NA"):
+            self.sites_gere_centroid_layer.removeSelection()
+        else:
+            QgsProject.instance().addMapLayer(self.sites_gere_centroid_layer)
+        
+        if not self.sites_gere_centroid_layer:
+            QMessageBox.question(iface.mainWindow(), u"Erreur !",
+                                "Impossible de charge la couche 'Sites gérés CEN-NA', veuillez contacter le pôle DSI !",
+                                QMessageBox.Ok)
+            return None
+
+        # Charger le fond de carte approprié
+        fond_carte = self.charger_fond_carte()
+        
+
+        self.organiser_couches(fond_carte)
 
         self.zoom_emprise_sites_selectionnes()
-
+            
+        return fond_carte
+            
     def zoom_emprise_sites_selectionnes(self):
+        """
+        Zoom sur l'emprise des sites sélectionnés
+        
+        """
         self.layer.setSubsetString('')
         self.layer.removeSelection()
         # ### Zoom sur emprise du ou des sites CEN selectionnés:
 
         for sites in self.dlg.mComboBox.checkedItems():
             if self.dlg.checkBox.isChecked():
-                self.vlayer.selectByExpression('"codesite"= \'{0}\''.format(sites.replace("'", "''")), QgsVectorLayer.AddToSelection)
+                self.sites_gere_centroid_layer.selectByExpression('"codesite"= \'{0}\''.format(sites.replace("'", "''")), QgsVectorLayer.AddToSelection)
                 self.layer.selectByExpression('"codesite"= \'{0}\''.format(sites.replace("'", "''")), QgsVectorLayer.AddToSelection)
 
             else:
-                self.vlayer.selectByExpression('"nom_site"= \'{0}\''.format(sites.replace("'", "''")), QgsVectorLayer.AddToSelection)
+                self.sites_gere_centroid_layer.selectByExpression('"nom_site"= \'{0}\''.format(sites.replace("'", "''")), QgsVectorLayer.AddToSelection)
                 self.layer.selectByExpression('"nom_site"= \'{0}\''.format(sites.replace("'", "''")), QgsVectorLayer.AddToSelection)
 
         iface.mapCanvas().zoomToSelected(self.layer)
 
-        QgsProject.instance().setCrs(QgsCoordinateReferenceSystem(2154))
+        QgsProject.instance().setCrs(QgsCoordinateReferenceSystem.fromEpsgId(2154))
+
 
         self.pointage_sites_selectiones()
 
+
     def pointage_sites_selectiones(self):
-            
+        """
+        Applique un style de pointage aux sites sélectionnés
+
+        """
+
         rules = (
             ('Site CEN sélectionné', "is_selected()", 'red'),
         )
 
         # create a new rule-based renderer
-        symbol = QgsSymbol.defaultSymbol(self.vlayer.geometryType())
+        symbol = QgsSymbol.defaultSymbol(self.sites_gere_centroid_layer.geometryType())
         renderer = QgsRuleBasedRenderer(symbol)
 
         # get the "root" rule
@@ -1021,20 +1057,24 @@ class MapCEN:
         root_rule.removeChildAt(0)
 
         # apply the renderer to the layer
-        self.vlayer.setRenderer(renderer)
+        self.sites_gere_centroid_layer.setRenderer(renderer)
         # refresh the layer on the map canvas
-        self.vlayer.triggerRepaint()
+        self.sites_gere_centroid_layer.triggerRepaint()
 
         self.choix_type_mise_en_page()
+        
 
     def choix_type_mise_en_page(self):
 
-            if self.dlg.comboBox_3.currentText() == "Périmètres écologiques":
-                self.module_perim_eco.mise_en_page()
-            elif self.dlg.comboBox_3.currentText() == "Localisation de sites":
-                self.module_loc_generale.mise_en_page()
-            else:
-                self.mise_en_page()
+        # Appeler la mise en page appropriée selon le module actif
+        if self.dlg.comboBox_3.currentText() == "Travaux":
+            self.module_travaux.choix_mise_en_page()
+        elif self.dlg.comboBox_3.currentText() == "Périmètres écologiques":
+            self.module_perim_eco.mise_en_page()
+        elif self.dlg.comboBox_3.currentText() == "Localisation de sites":
+            self.module_loc_generale.mise_en_page()
+        else:
+            self.mise_en_page()
 
 
     def masquer_parcelles_voisines(self):
@@ -1077,7 +1117,7 @@ class MapCEN:
         # ajout de la date, l'auteur, source etc...
         date_du_jour = date.today().strftime("%d/%m/%Y")
 
-        # QgsProject.instance().layerTreeRoot().findLayer(self.vlayer.id()).setItemVisibilityChecked(False)
+        # QgsProject.instance().layerTreeRoot().findLayer(self.sites_gere_centroid_layer.id()).setItemVisibilityChecked(False)
 
         ## Ajout de la mise en page au composeur de carte:
 
@@ -1141,7 +1181,7 @@ class MapCEN:
         my_map2.setPos(213, 28)
         my_map2.setFrameEnabled(False)
 
-        my_map2.setLayers([self.vlayer, self.depts_NA])
+        my_map2.setLayers([self.sites_gere_centroid_layer, self.depts_NA])
 
         ## Ajustement de l'emprise de la couche depts_CEN-NA au CRS 2154 :
 
@@ -1209,13 +1249,13 @@ class MapCEN:
 
         #lorsque sites de plusieurs départements sélectionnés, on les stockes dans une liste pour afficher les n° départements dans le titre:
         code_dpt = []
-        for i in self.vlayer.selectedFeatures():
+        for i in self.sites_gere_centroid_layer.selectedFeatures():
             code_dpt.append(i["codesite"][:2])
 
         if len(self.dlg.mComboBox_4.checkedItems()) > 1:
             titre = str(', '.join(self.dlg.mComboBox.checkedItems()) + " " + str(tuple([int(x) for x in code_dpt])) )
         else:
-            titre = str(', '.join(self.dlg.mComboBox.checkedItems()) + " (" + self.vlayer.selectedFeatures()[0]["codesite"][:2] + ")")
+            titre = str(', '.join(self.dlg.mComboBox.checkedItems()) + " (" + self.sites_gere_centroid_layer.selectedFeatures()[0]["codesite"][:2] + ")")
 
         title.setText(titre)
         title.setFont(QFont("Calibri", 16, QFont.Bold))
@@ -1294,7 +1334,7 @@ class MapCEN:
         credit_text2.adjustSizeToText()
         # credit_text2.attemptResize(QgsLayoutSize(150, 4, QgsUnitTypes.LayoutMillimeters))
 
-        temp_layer = self.vlayer.materialize(QgsFeatureRequest().setFilterFids(self.vlayer.selectedFeatureIds()))
+        temp_layer = self.sites_gere_centroid_layer.materialize(QgsFeatureRequest().setFilterFids(self.sites_gere_centroid_layer.selectedFeatureIds()))
 
         surf_parcelles_site_selectionne = temp_layer.aggregate(QgsAggregateCalculator.Sum, "contenance_mfu_m2")
         surf_ha = round(surf_parcelles_site_selectionne[0] / 10000, 2)
@@ -1325,6 +1365,8 @@ class MapCEN:
             iface.openLayoutDesigner(self.module_perim_eco.layout_carto_perim_eco)
         elif self.dlg.comboBox_3.currentText() == "Localisation de sites":
             iface.openLayoutDesigner(self.module_loc_generale.layout_carto_generale)
+        elif self.dlg.comboBox_3.currentText() == "Travaux":
+            iface.openLayoutDesigner(self.module_travaux.layout_carto_travaux)
         else:
             iface.openLayoutDesigner(self.layout)
 

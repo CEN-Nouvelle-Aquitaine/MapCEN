@@ -50,7 +50,7 @@ class module_loc_generale():
     def mise_en_page(self):
 
         layer = QgsProject.instance().mapLayersByName("Parcelles CEN NA en MFU")[0]
-        vlayer = QgsProject.instance().mapLayersByName("Sites gérés CEN-NA")[0]
+        self.sites_gere_centroid_layer = QgsProject.instance().mapLayersByName("Sites gérés CEN-NA")[0]
         self.depts_NA = QgsProject.instance().mapLayersByName("Département")[0]
 
 
@@ -72,21 +72,21 @@ class module_loc_generale():
 
         self.depts_NA.selectByExpression('"insee_dep"= \'%s\'' % departement, QgsVectorLayer.SetSelection)
 
-        vlayer.removeSelection()
+        self.sites_gere_centroid_layer.removeSelection()
         layer.removeSelection()
 
         for sites in self.dlg.mComboBox.checkedItems():
-            vlayer.selectByExpression('"nom_site"= \'{0}\''.format(sites.replace("'", "''")),
+            self.sites_gere_centroid_layer.selectByExpression('"nom_site"= \'{0}\''.format(sites.replace("'", "''")),
                                            QgsVectorLayer.AddToSelection)
 
-        iface.mapCanvas().zoomToSelected(vlayer)
+        iface.mapCanvas().zoomToSelected(self.sites_gere_centroid_layer)
 
         rules = (
             ('Site CEN sélectionné', "is_selected()", 'red'),
         )
 
         # create a new rule-based renderer
-        symbol = QgsSymbol.defaultSymbol(vlayer.geometryType())
+        symbol = QgsSymbol.defaultSymbol(self.sites_gere_centroid_layer.geometryType())
         renderer = QgsRuleBasedRenderer(symbol)
 
         # get the "root" rule
@@ -114,9 +114,9 @@ class module_loc_generale():
         root_rule.removeChildAt(0)
 
         # apply the renderer to the layer
-        vlayer.setRenderer(renderer)
+        self.sites_gere_centroid_layer.setRenderer(renderer)
         # refresh the layer on the map canvas
-        vlayer.triggerRepaint()
+        self.sites_gere_centroid_layer.triggerRepaint()
 
 
         if self.dlg.radioButton.isChecked() == True:
@@ -133,7 +133,7 @@ class module_loc_generale():
         # ajout de la date, l'auteur, source etc...
         date_du_jour = date.today().strftime("%d/%m/%Y")
 
-        # QgsProject.instance().layerTreeRoot().findLayer(self.vlayer.id()).setItemVisibilityChecked(False)
+        # QgsProject.instance().layerTreeRoot().findLayer(self.self.sites_gere_centroid_layer.id()).setItemVisibilityChecked(False)
 
         ## Ajout de la mise en page au composeur de carte:
 
@@ -189,7 +189,7 @@ class module_loc_generale():
         my_map2.setPos(227, 29)
         my_map2.setFrameEnabled(True)
 
-        my_map2.setLayers([vlayer, self.depts_NA])
+        my_map2.setLayers([self.sites_gere_centroid_layer, self.depts_NA])
 
 
         ## Ajustement de l'emprise de la couche depts_CEN-NA au CRS 2154 :
@@ -230,7 +230,7 @@ class module_loc_generale():
         legend.setLinkedMap(self.my_map1)
 
         legend.model().rootGroup().removeLayer(fond_carte)
-        legend.model().rootGroup().removeLayer(vlayer)
+        legend.model().rootGroup().removeLayer(self.sites_gere_centroid_layer)
 
         legend.attemptMove(QgsLayoutPoint(7, 165, QgsUnitTypes.LayoutMillimeters))
 
@@ -255,7 +255,7 @@ class module_loc_generale():
         ## Ajout d'un titre à la mise en page
         title = QgsLayoutItemLabel(self.layout)
         self.layout.addLayoutItem(title)
-        titre = str(', '.join(self.dlg.mComboBox.checkedItems()) + " (" + vlayer.selectedFeatures()[0]["codesite"][:2] + ")")
+        titre = str(', '.join(self.dlg.mComboBox.checkedItems()) + " (" + self.sites_gere_centroid_layer.selectedFeatures()[0]["codesite"][:2] + ")")
         title.setText(titre)
         title.setFont(QFont("Calibri", 16, QFont.Bold))
         title.attemptMove(QgsLayoutPoint(5, 6, QgsUnitTypes.LayoutMillimeters))

@@ -98,7 +98,7 @@ QWidget#tab_3{background-image: url(:/plugins/map_cen/background_plugin.PNG)}</s
        <string notr="true">color: rgb(13, 13, 13);</string>
       </property>
       <property name="title">
-       <string>Fond de carte</string>
+       <string>Fond de carte principal</string>
       </property>
       <widget class="QWidget" name="verticalLayoutWidget">
        <property name="geometry">
@@ -323,7 +323,7 @@ QWidget#tab_3{background-image: url(:/plugins/map_cen/background_plugin.PNG)}</s
        <enum>QComboBox::AdjustToContents</enum>
       </property>
       <property name="defaultText">
-       <string>Périmètres écologiques :</string>
+       <string/>
       </property>
      </widget>
      <widget class="QComboBox" name="comboBox_3">

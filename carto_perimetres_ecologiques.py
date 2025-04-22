@@ -51,9 +51,12 @@ class module_perim_eco():
             nom_perim_eco.append(item['Nom_couche_plugin'])
 
         #On fait apparaitre la comboBox lorsque le choix "périmetre eco" est sélectionné (idem pour le label_15) :
+        # Toujours vider la combobox avant d'ajouter de nouveaux éléments
+        self.dlg.mComboBox_3.clear()
+        self.dlg.mComboBox_3.setDefaultText("Sélectionnez un/des périmètre(s) écologique(s)")
         if not self.dlg.mComboBox_3.isVisible():
             self.dlg.mComboBox_3.show()
-
+        self.dlg.mComboBox_3.setCurrentIndex(-1)
         self.dlg.mComboBox_3.addItems(nom_perim_eco)
 
 
@@ -116,7 +119,7 @@ class module_perim_eco():
 
     def mise_en_page(self):
 
-        vlayer = QgsProject.instance().mapLayersByName("Sites gérés CEN-NA")[0]
+        self.sites_gere_centroid_layer = QgsProject.instance().mapLayersByName("Sites gérés CEN-NA")[0]
         depts_NA = QgsProject.instance().mapLayersByName("Département")[0]
 
 
@@ -132,13 +135,13 @@ class module_perim_eco():
 
         depts_NA.triggerRepaint()
 
-        vlayer.removeSelection()
+        self.sites_gere_centroid_layer.removeSelection()
 
         for sites in self.dlg.mComboBox.checkedItems():
 
-            vlayer.selectByExpression('"nom_site"= \'{0}\''.format(sites.replace("'", "''")), QgsVectorLayer.AddToSelection)
+            self.sites_gere_centroid_layer.selectByExpression('"nom_site"= \'{0}\''.format(sites.replace("'", "''")), QgsVectorLayer.AddToSelection)
 
-        iface.mapCanvas().zoomToSelected(vlayer)
+        iface.mapCanvas().zoomToSelected(self.sites_gere_centroid_layer)
 
 
         rules = (
@@ -146,7 +149,7 @@ class module_perim_eco():
         )
 
         # create a new rule-based renderer
-        symbol = QgsSymbol.defaultSymbol(vlayer.geometryType())
+        symbol = QgsSymbol.defaultSymbol(self.sites_gere_centroid_layer.geometryType())
         renderer = QgsRuleBasedRenderer(symbol)
 
         # get the "root" rule
@@ -174,12 +177,12 @@ class module_perim_eco():
         root_rule.removeChildAt(0)
 
         # apply the renderer to the layer
-        vlayer.setRenderer(renderer)
+        self.sites_gere_centroid_layer.setRenderer(renderer)
         # refresh the layer on the map canvas
-        vlayer.triggerRepaint()
+        self.sites_gere_centroid_layer.triggerRepaint()
 
         if self.dlg.radioButton.isChecked() == True:
-            fond_carte = QgsProject.instance().mapLayersByName("Fond ortho IGN 2021")[0]
+            fond_carte = QgsProject.instance().mapLayersByName("BD Ortho IGN")[0]
         elif self.dlg.radioButton_2.isChecked() == True:
             fond_carte = QgsProject.instance().mapLayersByName("OSM")[0]
         elif self.dlg.radioButton_3.isChecked() == True:
@@ -192,7 +195,7 @@ class module_perim_eco():
         # ajout de la date, l'auteur, source etc...
         date_du_jour = date.today().strftime("%d/%m/%Y")
 
-        # QgsProject.instance().layerTreeRoot().findLayer(self.vlayer.id()).setItemVisibilityChecked(False)
+        # QgsProject.instance().layerTreeRoot().findLayer(self.self.sites_gere_centroid_layer.id()).setItemVisibilityChecked(False)
 
         ## Ajout de la mise en page au composeur de carte:
         project = QgsProject.instance()
@@ -261,7 +264,7 @@ class module_perim_eco():
         self.layout.addItem(legend)
         legend.setLinkedMap(self.my_map1)
 
-        legend.model().rootGroup().removeLayer(vlayer)
+        legend.model().rootGroup().removeLayer(self.sites_gere_centroid_layer)
         legend.model().rootGroup().removeLayer(fond_carte)
         legend.model().rootGroup().removeLayer(depts_NA)
 
