@@ -214,7 +214,7 @@ class module_travaux():
             mySymbol1 = QgsSymbol.defaultSymbol(self.depts_NA.geometryType())
             fill_layer = QgsSimpleFillSymbolLayer.create({
                 'color': '255,255,255,0',         # fond transparent (alpha = 0)
-                'outline_color': '255,255,255,255',  # contours blancs
+                'outline_color': '184,18,120,255',  # contours blancs
                 'outline_width': '1'
             })
             mySymbol1.changeSymbolLayer(0, fill_layer)
@@ -298,7 +298,7 @@ class module_travaux():
             return
 
         # === Étape 1 : Filtrer la couche Travaux_79 ===
-        filter_expression = f'"nom_marche" = \'{nom_marche.replace("'", "''")}\''  # échappement sécuritaire
+        filter_expression = f""" "nom_marche" = '{nom_marche.replace("'", "''")}' """
         self.travaux_layer.setSubsetString(filter_expression)
 
         # Rafraîchir la carte

@@ -315,7 +315,7 @@ class MapCEN:
         """
         # Créer un QDialog (fenêtre personnalisée)
         dialog = QDialog()
-        dialog.setWindowTitle("Nouvelle version: MapCEN 3.9 !")
+        dialog.setWindowTitle("Nouvelle version: MapCEN !")
 
         # Créer un layout
         layout = QVBoxLayout()
