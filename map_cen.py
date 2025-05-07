@@ -21,9 +21,9 @@
  ***************************************************************************/
 """
 
-from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt, QThread, pyqtSignal, QSize
+from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt, QSize, QThread
 from qgis.PyQt.QtGui import QFont, QIcon, QMovie, QColor, QPixmap
-from qgis.PyQt.QtWidgets import QWidget, QAction, QMessageBox, QLabel, QPushButton, QFileDialog, QDialog, QVBoxLayout, QListWidget, QProgressDialog
+from qgis.PyQt.QtWidgets import QWidget, QAction, QMessageBox, QLabel, QPushButton, QFileDialog, QDialog, QVBoxLayout, QListWidget, QProgressDialog, QProgressBar
 from qgis.utils import iface
 from qgis.gui import QgsMapToolPan
 
@@ -35,7 +35,7 @@ from qgis.core import (
     QgsUnitTypes, QgsLayoutSize, QgsLayoutPoint, QgsPrintLayout,
     QgsGeometryGeneratorSymbolLayer, QgsWkbTypes, QgsSimpleFillSymbolLayer, QgsLayoutItemMap,
     QgsLayoutItemScaleBar, QgsAggregateCalculator, QgsReadWriteContext,
-    QgsLayoutItemPage, QgsLayerTreeGroup, QgsLegendStyle, QgsDataSourceUri
+    QgsLayoutItemPage, QgsLayerTreeGroup, QgsLegendStyle, QgsDataSourceUri, QgsLayoutExporter
 )
 
 from qgis.PyQt.QtXml import QDomDocument
@@ -105,8 +105,156 @@ class OptionsWindow(QWidget):
 
     def set_resolution(self, resolution):
         self.a = resolution
-        MapCEN.export(self)
+        
+        # Fermer immédiatement la fenêtre d'options
         self.close()
+        
+        # Demander à l'utilisateur où enregistrer l'image
+        fileName = QFileDialog.getSaveFileName(None, 'Sauvegarder en jpg', '', filter='*.jpg')
+        if not fileName or not fileName[0]:
+            return  # L'utilisateur a annulé
+            
+        dossier_sauvegarde = fileName[0]
+        
+        # Créer une boîte de dialogue personnalisée au lieu de QProgressDialog
+        progress_dialog = QDialog(None, Qt.WindowStaysOnTopHint)
+        progress_dialog.setWindowTitle("Export en cours")
+        progress_dialog.setWindowModality(Qt.WindowModal)  # Empêche l'accès à d'autres fenêtres
+        progress_dialog.resize(400, 200)
+        
+        # Créer la mise en page pour notre fenêtre
+        layout = QVBoxLayout(progress_dialog)
+        
+        # Titre principal
+        title_label = QLabel("Export de la carte en cours...")
+        title_label.setStyleSheet("font-size: 14px; font-weight: bold; margin-bottom: 10px;")
+        layout.addWidget(title_label)
+        
+        # Barre de progression
+        progress_bar = QProgressBar(progress_dialog)
+        progress_bar.setMinimum(0)
+        progress_bar.setMaximum(100)
+        progress_bar.setValue(10)  # Démarrer à 10%
+        layout.addWidget(progress_bar)
+        
+        # Message d'information
+        info_label = QLabel("Initialisation de l'export...")
+        layout.addWidget(info_label)
+        
+        # Message d'avertissement sur la durée
+        warning_label = QLabel("L'export peut prendre jusqu'à 30 secondes pour les cartes en haute résolution.\nLe curseur peut sembler bloqué, mais le processus est bien en cours.")
+        warning_label.setStyleSheet("font-size: 10px; color: gray; margin-top: 10px;")
+        layout.addWidget(warning_label)
+        
+        # Afficher le dialogue
+        progress_dialog.show()
+        QgsApplication.processEvents()
+        
+        try:
+            # Récupérer toutes les mises en page disponibles
+            layouts = QgsProject.instance().layoutManager().layouts()
+            progress_bar.setValue(20)
+            info_label.setText("Chargement des mises en page...")
+            QgsApplication.processEvents()
+            
+            if not layouts:
+                progress_dialog.close()
+                QMessageBox.warning(None, "Erreur", "Aucune mise en page n'a été trouvée dans le projet.")
+                return
+                
+            # Utiliser la première mise en page disponible
+            dialog_layout = layouts[0]  # Renommé pour éviter la confusion avec le QVBoxLayout
+            progress_bar.setValue(30)
+            info_label.setText(f"Préparation de la mise en page : {dialog_layout.name()}")
+            QgsApplication.processEvents()
+            
+            # Afficher quelle mise en page est utilisée
+            print(f"Utilisation de la mise en page: {dialog_layout.name()}")
+            
+            if not dialog_layout:
+                progress_dialog.close()
+                QMessageBox.warning(None, "Erreur", "La mise en page n'a pas pu être trouvée. Veuillez vérifier sa disponibilité dans le gestionnaire de mises en page.")
+                return
+                
+            # Configurer la résolution d'export
+            progress_bar.setValue(50)
+            QgsApplication.processEvents()
+            exporter = QgsLayoutExporter(dialog_layout)
+            settings = QgsLayoutExporter.ImageExportSettings()
+            settings.dpi = resolution
+            
+            # Avec notre dialogue personnalisé, pas besoin de désactiver un bouton d'annulation
+            # car nous n'en avons pas ajouté. Notre dialogue est modal et sans bouton d'annulation.
+            
+            # Animation de la barre pour montrer que le processus est en cours
+            for i in range(70, 85):
+                progress_bar.setValue(i)
+                info_label.setText(f"Génération de l'image en cours... ({i}%)")
+                QgsApplication.processEvents()
+                # Petite pause pour l'animation
+                QThread.msleep(50)  # 50ms pause
+                
+            # Exporter l'image (opération blocante)
+            for i in range(85, 95):
+                progress_bar.setValue(i)
+                info_label.setText(f"Finalisation de l'export... ({i}%)")
+                QgsApplication.processEvents()
+                # Petite pause pour l'animation
+                QThread.msleep(50)  # 50ms pause
+            
+            # Désactiver le bouton de fermeture (s'il est visible)
+            progress_dialog.setWindowFlags(progress_dialog.windowFlags() & ~Qt.WindowCloseButtonHint)
+            progress_dialog.show() # Nécessaire après avoir modifié les flags
+            QgsApplication.processEvents()
+            
+            # Mise à jour des informations avant l'export
+            info_label.setText("Export en cours... Cela peut prendre jusqu'à 30 secondes.")
+            warning_label.setText("Veuillez ne pas fermer cette fenêtre. Le plugin peut sembler figé pendant l'export.")
+            warning_label.setStyleSheet("font-size: 10px; color: #e74c3c; font-weight: bold;")
+            QgsApplication.processEvents()
+            
+            # Exécuter l'export (opération blocante)
+            result_img = exporter.exportToImage(dossier_sauvegarde, settings)
+            
+            # Une fois l'export terminé
+            progress_bar.setValue(98)
+            info_label.setText("Export terminé avec succès!")
+            QgsApplication.processEvents()
+            
+            # Afficher le résultat
+            progress_bar.setValue(100)
+            info_label.setText("Export terminé !")
+            QgsApplication.processEvents()
+            
+            if result_img == QgsLayoutExporter.Success:
+                progress_dialog.close()
+                QMessageBox.information(None, "Export réussi", f"La carte a été exportée avec succès en {resolution} DPI.")
+            else:
+                progress_dialog.close()
+                QMessageBox.critical(None, "Erreur d'export", "L'export a échoué. Veuillez vérifier le chemin d'enregistrement et réessayer.")
+                
+            print(f"Résultat de l'export: {result_img}")  # 0 = export réussi !
+        except Exception as e:
+            # Gérer les erreurs potentielles
+            progress_dialog.close()
+            QMessageBox.critical(None, "Erreur", f"Une erreur s'est produite lors de l'export : {str(e)}")
+            print(f"Erreur d'export : {str(e)}")
+        finally:
+            # S'assurer que la barre de progression est bien fermée
+            if progress_dialog and progress_dialog.isVisible():
+                progress_dialog.close()
+                
+            # Nettoyage explicite des ressources pour éviter les fuites de mémoire
+            try:
+                # Déréférencer les objets pour aider le garbage collector
+                exporter = None
+                dialog_layout = None
+                progress_dialog = None
+                progress_bar = None
+                info_label = None
+                warning_label = None
+            except:
+                pass
 
 
 class AuthSelectionDialog(QDialog):
@@ -875,7 +1023,7 @@ class MapCEN:
         et retourne la référence à ce fond de carte.
         """
         fond_carte = None
-        
+
         # Chargement du fond de carte en fonction du bouton radio sélectionné
         if self.dlg.radioButton.isChecked() == True:
             uri = "url=https://data.geopf.fr/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities&service=WMS&version=1.3.0&crs=EPSG:2154&format=image/png&layers=HR.ORTHOIMAGERY.ORTHOPHOTOS&styles"
@@ -900,7 +1048,7 @@ class MapCEN:
             fond_carte = QgsProject.instance().mapLayersByName("OSM")[0]
 
         elif self.dlg.radioButton_3.isChecked() == True:
-            uri = 'url=https://opendata.cen-nouvelle-aquitaine.org/geoserver/fond_carto/wms?service=WMS+Raster&version=1.0.0&crs=EPSG:2154&format=image/png&layers=SCAN25TOUR_PYR-JPEG_WLD_WM&styles'
+            uri = 'contextualWMSLegend=0&crs=EPSG:2154&dpiMode=7&featureCount=10&format=image/jpeg&http-header:apikey=ign_scan_ws&layers=SCAN25TOUR_PYR-JPEG_WLD_WM&styles&tilePixelRatio=0&url=https://data.geopf.fr/private/wms-r?VERSION%3D1.3.0'
             self.fond = QgsRasterLayer(uri, "SCAN25 IGN", "wms")
 
             if not QgsProject.instance().mapLayersByName("SCAN25 IGN"):
@@ -1380,32 +1528,58 @@ class MapCEN:
         self.dlg.graphicsView.setScene(self.layout2)
 
 
-    def export(self):
-
-
-        fileName = QFileDialog.getSaveFileName(None, 'Sauvegarder en jpg', '', filter='*.jpg')
-        if fileName:
-            dossier_sauvegarde = fileName[0]
+    def export(self, options_instance=None):
+        # Vérifie si la fonction est appelée depuis OptionsWindow
+        if options_instance and hasattr(options_instance, 'a'):
+            # Utiliser la résolution définie dans OptionsWindow
+            resolution_dpi = options_instance.a
+            # Demander à l'utilisateur où enregistrer l'image
+            fileName = QFileDialog.getSaveFileName(None, 'Sauvegarder en jpg', '', filter='*.jpg')
+            if not fileName or not fileName[0]:
+                return  # L'utilisateur a annulé
+        else:
+            # Si appelé directement, ouvrir la fenêtre d'options
+            options_window = OptionsWindow()
+            options_window.show()
+            # La fonction sera rappelée via set_resolution avec la résolution choisie
+            return
+            
+        dossier_sauvegarde = fileName[0]
 
         ###  -------------------- Automatisation de la mise en page ----------------------- ###
-        if self.dlg.comboBox_3.currentText() == "Périmètres écologiques":
-            self.layout = QgsProject.instance().layoutManager().layoutByName('Mise en page automatique MapCEN (Périmètres écologiques)')
-        elif self.dlg.comboBox_3.currentText() == "Localisation de sites":
-            self.layout = QgsProject.instance().layoutManager().layoutByName('Mise en page automatique MapCEN (Carto de localisation générale)')
+        # Déterminer la mise en page à utiliser
+        try:
+            if self.dlg.comboBox_3.currentText() == "Périmètres écologiques":
+                layout = QgsProject.instance().layoutManager().layoutByName('Mise en page automatique MapCEN (Périmètres écologiques)')
+            elif self.dlg.comboBox_3.currentText() == "Localisation de sites":
+                layout = QgsProject.instance().layoutManager().layoutByName('Mise en page automatique MapCEN (Carto de localisation générale)')
+            elif self.dlg.comboBox_3.currentText() == "Travaux":
+                layout = QgsProject.instance().layoutManager().layoutByName('Mise en page automatique MapCEN (Travaux)')
+            else:
+                layout = QgsProject.instance().layoutManager().layoutByName('Mise en page automatique MapCEN (MFU)')
+        except:
+            # Si on est appelé depuis OptionsWindow, self.dlg n'existe peut-être pas
+            layout = QgsProject.instance().layoutManager().layoutByName('Mise en page automatique MapCEN (MFU)')
+        
+        if not layout:
+            QMessageBox.warning(None, "Erreur", "La mise en page n'a pas pu être trouvée. Veuillez vérifier sa disponibilité dans le gestionnaire de mises en page.")
+            return
+
+        # Configurer la résolution d'export
+        exporter = QgsLayoutExporter(layout)
+        settings = QgsLayoutExporter.ImageExportSettings()
+        settings.dpi = resolution_dpi
+        
+        # Exporter l'image
+        result_img = exporter.exportToImage(dossier_sauvegarde, settings)
+        
+        # Afficher le résultat
+        if result_img == QgsLayoutExporter.Success:
+            QMessageBox.information(None, "Export réussi", f"La carte a été exportée avec succès en {resolution_dpi} DPI.")
         else:
-            self.layout = QgsProject.instance().layoutManager().layoutByName('Mise en page automatique MapCEN (MFU)')
-
-        print(self.dlg.comboBox_3.currentText())  #combobBox_3 ne semble pas exister en étant appeller depuis OptionsWindow ???!
-
-        # self.layout.renderContext().setDpi(300)
-        #
-        # exporter = QgsLayoutExporter(self.layout)
-        # settings = QgsLayoutExporter.ImageExportSettings()
-        #
-        #
-        # result_png = exporter.exportToImage(dossier_sauvegarde, settings)
-
-        # print(result_png)  # 0 = export réussi !
+            QMessageBox.critical(None, "Erreur d'export", "L'export a échoué. Veuillez vérifier le chemin d'enregistrement et réessayer.")
+            
+        print(f"Résultat de l'export: {result_img}")  # 0 = export réussi !
 
     def liste_couche_template(self):
 

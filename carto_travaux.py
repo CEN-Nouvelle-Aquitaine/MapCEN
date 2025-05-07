@@ -56,6 +56,9 @@ class module_travaux():
         self.dlg = None
         self.layout_carto_travaux = None
         self.checkbox_2 = None
+        self.horizontalSlider = None
+        self.echelle = None
+        self.my_map1 = None
 
 
     def initialisation(self):
@@ -71,6 +74,12 @@ class module_travaux():
             self.checkbox_2.setFont(font)
             # Connect checkbox state change to handler function
             self.checkbox_2.stateChanged.connect(self.on_checkbox_2_changed)
+        
+        # Ajouter le slider de zoom s'il n'existe pas encore
+        if self.horizontalSlider is None and hasattr(self.dlg, 'horizontalSlider'):
+            self.horizontalSlider = self.dlg.horizontalSlider
+            # Connect slider value change to handler function
+            self.horizontalSlider.valueChanged.connect(self.niveau_zoom)
         
         # Connect comboBox_3 text changed signal to handler function
         self.dlg.comboBox_3.currentTextChanged.connect(self.on_combobox_changed)
@@ -611,6 +620,10 @@ class module_travaux():
         my_map1.attemptMove(QgsLayoutPoint(5, 23, QgsUnitTypes.LayoutMillimeters))
         my_map1.attemptResize(QgsLayoutSize(185, 182, QgsUnitTypes.LayoutMillimeters))
         layout.addLayoutItem(my_map1)
+        
+        # Conserver les références pour le zoom
+        self.my_map1 = my_map1
+        self.echelle = my_map1.scale()
 
         ## Ajout du logo CEN NA en bas à droite de la carte principale
         logo = QgsLayoutItemPicture(layout)
@@ -930,7 +943,8 @@ class module_travaux():
             
             # Configurer le placement des étiquettes
             label_settings.placement = QgsPalLayerSettings.AroundPoint
-
+            label_settings.dist = 0.7  # Distance autour du point, en millimètres
+            
             # Forcer l'affichage de toutes les étiquettes
             label_settings.displayAll = True
             label_settings.obstacle = False
@@ -1054,6 +1068,10 @@ class module_travaux():
         my_map1.attemptResize(QgsLayoutSize(201, 245, QgsUnitTypes.LayoutMillimeters))
         layout.addLayoutItem(my_map1)
         
+        # Conserver les références pour le zoom
+        self.my_map1 = my_map1
+        self.echelle = my_map1.scale()
+        
         
         # === Titre ===
         titre = QgsLayoutItemLabel(layout)
@@ -1151,3 +1169,32 @@ class module_travaux():
         for layer in layers_to_remove:
             QgsProject.instance().removeMapLayer(layer)
             print(f"✔ Couche temporaire supprimée : {layer.name()}")
+            
+    def niveau_zoom(self):
+        """
+        Ajuste l'échelle de la carte en fonction de la valeur du slider
+        """
+        # Vérifier que my_map1 et horizontalSlider existent
+        if not self.my_map1 or not self.horizontalSlider:
+            return
+            
+        # Ajuster l'échelle en fonction de la valeur du slider
+        slider_value = self.horizontalSlider.value()
+        
+        if slider_value == 2:
+            self.my_map1.setScale(self.echelle/1.8)
+        elif slider_value == 1:
+            self.my_map1.setScale(self.echelle/1.4)
+        elif slider_value == 0:
+            self.my_map1.setScale(self.echelle)
+        elif slider_value == -1:
+            self.my_map1.setScale(self.echelle*1.4)
+        else:  # -2
+            self.my_map1.setScale(self.echelle*1.8)
+
+        # Rafraîchir la carte
+        self.my_map1.refresh()
+        
+        # Rafraîchir la mise en page si elle existe
+        if self.layout_carto_travaux:
+            self.layout_carto_travaux.refresh()
