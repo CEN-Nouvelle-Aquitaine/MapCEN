@@ -90,19 +90,19 @@ class module_travaux():
 
         uri2 = QgsDataSourceUri()
         uri2.setParam("url", "https://opendata.cen-nouvelle-aquitaine.org/geoserver/fonciercen/wfs")
-        uri2.setParam("typename", "fonciercen:site_gere_poly")
+        uri2.setParam("typename", "fonciercen:aig_cenna")
         from qgis.utils import plugins
         map_cen_instance = plugins['map_cen']
         if not map_cen_instance.apply_authentication_if_needed(uri2):
             return  # Exit if authentication fails
 
         # Step 4: Load the protected layer
-        self.sites_gere_poly_layer = QgsVectorLayer(uri2.uri(), "Sites gérés CEN-NA (polygone)", "WFS")
-        if not self.sites_gere_poly_layer.isValid():
-            QMessageBox.warning(self.dlg, "Erreur de chargement", "Impossible de charger la couche 'Sites gérés CEN-NA (polygone)'.")
+        self.aires_intervention = QgsVectorLayer(uri2.uri(), "Aires d'intervention globale CEN NA", "WFS")
+        if not self.aires_intervention.isValid():
+            QMessageBox.warning(self.dlg, "Erreur de chargement", "Impossible de charger la couche 'Aires d'intervention globale CEN NA'.")
             return
         else:
-            QgsProject.instance().addMapLayer(self.sites_gere_poly_layer)
+            QgsProject.instance().addMapLayer(self.aires_intervention)
 
 
         uri3 = QgsDataSourceUri()
@@ -298,7 +298,7 @@ class module_travaux():
             return
 
         # === Étape 1 : Filtrer la couche Travaux_79 ===
-        filter_expression = f""" "nom_marche" = '{nom_marche.replace("'", "''")}' """
+        filter_expression = f'"nom_marche" = \'{nom_marche.replace("'", "''")}\''  # échappement sécuritaire
         self.travaux_layer.setSubsetString(filter_expression)
 
         # Rafraîchir la carte
@@ -562,20 +562,20 @@ class module_travaux():
         manager.addLayout(layout)
 
 
-        myRenderer_site = self.sites_gere_poly_layer.renderer()
+        myRenderer_site = self.aires_intervention.renderer()
 
-        mySymbol2 = QgsSymbol.defaultSymbol(self.sites_gere_poly_layer.geometryType())
+        mySymbol2 = QgsSymbol.defaultSymbol(self.aires_intervention.geometryType())
         fill_layer = QgsSimpleFillSymbolLayer.create(
             {'color': '255,255,255,0', 'outline_color': '255,0,0,255', 'outline_width': '0.4'}
         )
         mySymbol2.changeSymbolLayer(0, fill_layer)
         myRenderer_site.setSymbol(mySymbol2)
 
-        self.sites_gere_poly_layer.triggerRepaint()
+        self.aires_intervention.triggerRepaint()
 
         # Carte principale
-        main_map = QgsLayoutItemMap(layout)
-        main_map.setRect(20, 20, 20, 20)
+        my_map1 = QgsLayoutItemMap(layout)
+        my_map1.setRect(20, 20, 20, 20)
         
         # Définir les bornes du buffer autour de l'emprise du site
         min_buffer = 70    # Marge minimale en mètres à appliquer (même pour les très petits sites)
@@ -598,19 +598,19 @@ class module_travaux():
         buffered_extent.setYMaximum(extent.yMaximum() + buffer_y)
 
         # On définit cette nouvelle emprise tamponnée comme l'étendue de la carte principale
-        main_map.setExtent(buffered_extent)
+        my_map1.setExtent(buffered_extent)
 
 
         if self.fond_carte and self.fond_carte.isValid():
-            main_map.setLayers([self.sites_gere_poly_layer, self.travaux_layer, self.fond_carte])
+            my_map1.setLayers([self.aires_intervention, self.travaux_layer, self.fond_carte])
         else:
-            main_map.setLayers([self.sites_gere_poly_layer, self.travaux_layer])
+            my_map1.setLayers([self.aires_intervention, self.travaux_layer])
 
 
         # Position et taille de la carte principale
-        main_map.attemptMove(QgsLayoutPoint(5, 23, QgsUnitTypes.LayoutMillimeters))
-        main_map.attemptResize(QgsLayoutSize(185, 182, QgsUnitTypes.LayoutMillimeters))
-        layout.addLayoutItem(main_map)
+        my_map1.attemptMove(QgsLayoutPoint(5, 23, QgsUnitTypes.LayoutMillimeters))
+        my_map1.attemptResize(QgsLayoutSize(185, 182, QgsUnitTypes.LayoutMillimeters))
+        layout.addLayoutItem(my_map1)
 
         ## Ajout du logo CEN NA en bas à droite de la carte principale
         logo = QgsLayoutItemPicture(layout)
@@ -651,9 +651,9 @@ class module_travaux():
         # Charger le fond de carte SCAN25 pour la carte de localisation
         fond_carte_secondaire = self.charger_fond_carte_secondaire()
         if fond_carte_secondaire:
-            loc_map.setLayers([self.sites_gere_poly_layer, self.travaux_layer, fond_carte_secondaire])
+            loc_map.setLayers([self.aires_intervention, self.travaux_layer, fond_carte_secondaire])
         else:
-            loc_map.setLayers([self.sites_gere_poly_layer, self.travaux_layer])
+            loc_map.setLayers([self.aires_intervention, self.travaux_layer])
 
 
         # Position et taille de la carte de localisation
@@ -762,10 +762,10 @@ class module_travaux():
 
         # Légende
         legend_cen = QgsLayoutItemLegend(layout)
-        legend_cen.setLinkedMap(main_map)
+        legend_cen.setLinkedMap(my_map1)
         legend_cen.setAutoUpdateModel(False)
         legend_cen.model().rootGroup().clear()
-        legend_cen.model().rootGroup().addLayer(self.sites_gere_poly_layer)
+        legend_cen.model().rootGroup().addLayer(self.aires_intervention)
 
         legend_cen.setStyleFont(QgsLegendStyle.Title, QFont("Arial", 11, QFont.Bold))
         legend_cen.setStyleFont(QgsLegendStyle.SymbolLabel, QFont("Arial", 9))
@@ -783,7 +783,7 @@ class module_travaux():
         # === Légende 2 : Travaux ===
         legend_travaux = QgsLayoutItemLegend(layout)
         legend_travaux.setTitle("Type d'intervention")
-        legend_travaux.setLinkedMap(main_map)
+        legend_travaux.setLinkedMap(my_map1)
         legend_travaux.setAutoUpdateModel(False)
         legend_travaux.model().rootGroup().clear()
         legend_travaux.model().rootGroup().addLayer(self.travaux_layer)
@@ -806,7 +806,7 @@ class module_travaux():
         # Échelle
         scalebar = QgsLayoutItemScaleBar(layout)
         scalebar.setStyle('Single Box')
-        scalebar.setLinkedMap(main_map)
+        scalebar.setLinkedMap(my_map1)
         scalebar.applyDefaultSize()
         scalebar.applyDefaultSettings()
         
@@ -991,6 +991,10 @@ class module_travaux():
         # Créer un nouveau layout
         layout = QgsPrintLayout(project)
         layout.initializeDefaults()
+        # Forcer le format A4 portrait
+        page = layout.pageCollection().pages()[0]  # Récupère la première page
+        page.setPageSize(QgsLayoutSize(210, 297, QgsUnitTypes.LayoutMillimeters))  # Largeur x Hauteur en mm
+
         layout.setName(layout_name)
         
         # Ajouter le layout au gestionnaire de layouts
@@ -1004,8 +1008,10 @@ class module_travaux():
 
         
        # === Carte principale ===
-        main_map = QgsLayoutItemMap(layout)
-        main_map.setRect(20, 20, 20, 20)
+        my_map1 = QgsLayoutItemMap(layout)
+        my_map1.setRect(20, 20, 20, 20)
+        my_map1.setFrameEnabled(True)
+
         
         # Au lieu d'appliquer un buffer basé sur un pourcentage de la taille,
         # nous allons simplement utiliser l'étendue complète du département avec une petite marge fixe
@@ -1024,7 +1030,7 @@ class module_travaux():
         buffered_extent.setYMaximum(extent.yMaximum() + fixed_margin)
         
         # On définit cette nouvelle emprise comme l'étendue de la carte principale
-        main_map.setExtent(buffered_extent)
+        my_map1.setExtent(buffered_extent)
 
         self.fond_carte = None
         try:
@@ -1039,14 +1045,14 @@ class module_travaux():
             self.fond_carte = None
 
         if self.fond_carte and self.fond_carte.isValid():
-            main_map.setLayers([self.sites_gere_centroid_layer, self.depts_NA, self.fond_carte])
+            my_map1.setLayers([self.sites_gere_centroid_layer, self.depts_NA, self.fond_carte])
         else:
-            main_map.setLayers([self.sites_gere_centroid_layer, self.depts_NA])
+            my_map1.setLayers([self.sites_gere_centroid_layer, self.depts_NA])
 
         # Position et taille de la carte principale (identique à mise_en_page)
-        main_map.attemptMove(QgsLayoutPoint(5, 23, QgsUnitTypes.LayoutMillimeters))
-        main_map.attemptResize(QgsLayoutSize(287, 158, QgsUnitTypes.LayoutMillimeters))
-        layout.addLayoutItem(main_map)
+        my_map1.attemptMove(QgsLayoutPoint(5, 23, QgsUnitTypes.LayoutMillimeters))
+        my_map1.attemptResize(QgsLayoutSize(201, 245, QgsUnitTypes.LayoutMillimeters))
+        layout.addLayoutItem(my_map1)
         
         
         # === Titre ===
@@ -1071,7 +1077,7 @@ class module_travaux():
         logo.setPicturePath(os.path.dirname(__file__) + '/icons/logo.jpg')
         
         # Positionnement en bas à droite de la carte principale
-        logo.attemptMove(QgsLayoutPoint(248, 5, QgsUnitTypes.LayoutMillimeters))
+        logo.attemptMove(QgsLayoutPoint(164, 5, QgsUnitTypes.LayoutMillimeters))
         
         # Taille réduite de 30%
         original_width = 720
@@ -1085,7 +1091,7 @@ class module_travaux():
         # === Échelle ===
         scalebar = QgsLayoutItemScaleBar(layout)
         scalebar.setStyle('Single Box')
-        scalebar.setLinkedMap(main_map)
+        scalebar.setLinkedMap(my_map1)
 
         scalebar.setUnits(QgsUnitTypes.DistanceKilometers)
         scalebar.setUnitLabel("km")
@@ -1093,7 +1099,7 @@ class module_travaux():
         scalebar.setNumberOfSegmentsLeft(0)
         scalebar.setUnitsPerSegment(25)  # chaque segment = 25 km
 
-        scalebar.attemptMove(QgsLayoutPoint(223, 184, QgsUnitTypes.LayoutMillimeters))
+        scalebar.attemptMove(QgsLayoutPoint(151, 269, QgsUnitTypes.LayoutMillimeters))
 
         scalebar.update()
 
@@ -1105,7 +1111,7 @@ class module_travaux():
         north.setPicturePath(os.path.dirname(__file__) + "/NorthArrow_02.svg")
         layout.addLayoutItem(north)
         north.attemptResize(QgsLayoutSize(8.4, 12.5, QgsUnitTypes.LayoutMillimeters))
-        north.attemptMove(QgsLayoutPoint(205, 183, QgsUnitTypes.LayoutMillimeters))
+        north.attemptMove(QgsLayoutPoint(137, 268, QgsUnitTypes.LayoutMillimeters))
         
         # === Crédits ===
         date_du_jour = date.today().strftime("%d/%m/%Y")
@@ -1113,14 +1119,14 @@ class module_travaux():
         credit_text.setText(f"Réalisation : CEN Nouvelle-Aquitaine ({date_du_jour})")
         credit_text.setFont(QFont("Arial", 8))
         layout.addLayoutItem(credit_text)
-        credit_text.attemptMove(QgsLayoutPoint(218, 199, QgsUnitTypes.LayoutMillimeters))
+        credit_text.attemptMove(QgsLayoutPoint(137, 285, QgsUnitTypes.LayoutMillimeters))
         credit_text.adjustSizeToText()
         
         credit_text2 = QgsLayoutItemLabel(layout)
         credit_text2.setText("Source: Google (fond satellite), IGN (fond SCAN25)")
         credit_text2.setFont(QFont("Arial", 8))
         layout.addLayoutItem(credit_text2)
-        credit_text2.attemptMove(QgsLayoutPoint(218, 203, QgsUnitTypes.LayoutMillimeters))
+        credit_text2.attemptMove(QgsLayoutPoint(137, 290, QgsUnitTypes.LayoutMillimeters))
         credit_text2.adjustSizeToText()
         
         # Rafraîchir le layout
