@@ -31,6 +31,6 @@ def classFactory(iface):  # pylint: disable=invalid-name
     :param iface: A QGIS interface instance.
     :type iface: QgsInterface
     """
-    #
+    # Utiliser la nouvelle version du plugin avec l'architecture modulaire
     from .map_cen import MapCEN
     return MapCEN(iface)

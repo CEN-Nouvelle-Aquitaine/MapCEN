@@ -52,10 +52,8 @@ import yaml
 
 from datetime import date
 
-
-from .carto_perimetres_ecologiques import module_perim_eco
-from .carto_localisation_generale import module_loc_generale
-from .carto_travaux import module_travaux
+# Import le gestionnaire de modules
+from .modules.module_manager import ModuleManager
 
 
 # Vérifier la connexion à internet
@@ -68,6 +66,7 @@ except socket.error:
     # Afficher un message si l'utilisateur n'est pas connecté à internet
     QMessageBox.warning(None, 'Avertissement',
                         'Vous n\'êtes actuellement pas connecté à internet. Veuillez vous connecter pour pouvoir utiliser MapCEN !')
+
 
 class OptionsWindow(QWidget):
     def __init__(self, parent=None):
@@ -98,201 +97,60 @@ class OptionsWindow(QWidget):
         b.clicked.connect(lambda: self.set_resolution(200))
         c.clicked.connect(lambda: self.set_resolution(100))
 
-        # OptionsWindow().exec_()
-
         self.dlg = MapCENDialog()
-        # self.module_loc_generale = module_loc_generale()
 
     def set_resolution(self, resolution):
-        self.a = resolution
+        # Récupérer l'instance du plugin MapCEN
+        from qgis.utils import plugins
+        map_cen_instance = plugins['map_cen']
         
-        # Fermer immédiatement la fenêtre d'options
+        # Définir la résolution
+        map_cen_instance.resolution = resolution
+        
+        # Fermer la fenêtre d'options
         self.close()
-        
-        # Demander à l'utilisateur où enregistrer l'image
-        fileName = QFileDialog.getSaveFileName(None, 'Sauvegarder en jpg', '', filter='*.jpg')
-        if not fileName or not fileName[0]:
-            return  # L'utilisateur a annulé
-            
-        dossier_sauvegarde = fileName[0]
-        
-        # Créer une boîte de dialogue personnalisée au lieu de QProgressDialog
-        progress_dialog = QDialog(None, Qt.WindowStaysOnTopHint)
-        progress_dialog.setWindowTitle("Export en cours")
-        progress_dialog.setWindowModality(Qt.WindowModal)  # Empêche l'accès à d'autres fenêtres
-        progress_dialog.resize(400, 200)
-        
-        # Créer la mise en page pour notre fenêtre
-        layout = QVBoxLayout(progress_dialog)
-        
-        # Titre principal
-        title_label = QLabel("Export de la carte en cours...")
-        title_label.setStyleSheet("font-size: 14px; font-weight: bold; margin-bottom: 10px;")
-        layout.addWidget(title_label)
-        
-        # Barre de progression
-        progress_bar = QProgressBar(progress_dialog)
-        progress_bar.setMinimum(0)
-        progress_bar.setMaximum(100)
-        progress_bar.setValue(10)  # Démarrer à 10%
-        layout.addWidget(progress_bar)
-        
-        # Message d'information
-        info_label = QLabel("Initialisation de l'export...")
-        layout.addWidget(info_label)
-        
-        # Message d'avertissement sur la durée
-        warning_label = QLabel("L'export peut prendre jusqu'à 30 secondes pour les cartes en haute résolution.\nLe curseur peut sembler bloqué, mais le processus est bien en cours.")
-        warning_label.setStyleSheet("font-size: 10px; color: gray; margin-top: 10px;")
-        layout.addWidget(warning_label)
-        
-        # Afficher le dialogue
-        progress_dialog.show()
-        QgsApplication.processEvents()
-        
-        try:
-            # Récupérer toutes les mises en page disponibles
-            layouts = QgsProject.instance().layoutManager().layouts()
-            progress_bar.setValue(20)
-            info_label.setText("Chargement des mises en page...")
-            QgsApplication.processEvents()
-            
-            if not layouts:
-                progress_dialog.close()
-                QMessageBox.warning(None, "Erreur", "Aucune mise en page n'a été trouvée dans le projet.")
-                return
-                
-            # Utiliser la première mise en page disponible
-            dialog_layout = layouts[0]  # Renommé pour éviter la confusion avec le QVBoxLayout
-            progress_bar.setValue(30)
-            info_label.setText(f"Préparation de la mise en page : {dialog_layout.name()}")
-            QgsApplication.processEvents()
-            
-            # Afficher quelle mise en page est utilisée
-            print(f"Utilisation de la mise en page: {dialog_layout.name()}")
-            
-            if not dialog_layout:
-                progress_dialog.close()
-                QMessageBox.warning(None, "Erreur", "La mise en page n'a pas pu être trouvée. Veuillez vérifier sa disponibilité dans le gestionnaire de mises en page.")
-                return
-                
-            # Configurer la résolution d'export
-            progress_bar.setValue(50)
-            QgsApplication.processEvents()
-            exporter = QgsLayoutExporter(dialog_layout)
-            settings = QgsLayoutExporter.ImageExportSettings()
-            settings.dpi = resolution
-            
-            # Avec notre dialogue personnalisé, pas besoin de désactiver un bouton d'annulation
-            # car nous n'en avons pas ajouté. Notre dialogue est modal et sans bouton d'annulation.
-            
-            # Animation de la barre pour montrer que le processus est en cours
-            for i in range(70, 85):
-                progress_bar.setValue(i)
-                info_label.setText(f"Génération de l'image en cours... ({i}%)")
-                QgsApplication.processEvents()
-                # Petite pause pour l'animation
-                QThread.msleep(50)  # 50ms pause
-                
-            # Exporter l'image (opération blocante)
-            for i in range(85, 95):
-                progress_bar.setValue(i)
-                info_label.setText(f"Finalisation de l'export... ({i}%)")
-                QgsApplication.processEvents()
-                # Petite pause pour l'animation
-                QThread.msleep(50)  # 50ms pause
-            
-            # Désactiver le bouton de fermeture (s'il est visible)
-            progress_dialog.setWindowFlags(progress_dialog.windowFlags() & ~Qt.WindowCloseButtonHint)
-            progress_dialog.show() # Nécessaire après avoir modifié les flags
-            QgsApplication.processEvents()
-            
-            # Mise à jour des informations avant l'export
-            info_label.setText("Export en cours... Cela peut prendre jusqu'à 30 secondes.")
-            warning_label.setText("Veuillez ne pas fermer cette fenêtre. Le plugin peut sembler figé pendant l'export.")
-            warning_label.setStyleSheet("font-size: 10px; color: #e74c3c; font-weight: bold;")
-            QgsApplication.processEvents()
-            
-            # Exécuter l'export (opération blocante)
-            result_img = exporter.exportToImage(dossier_sauvegarde, settings)
-            
-            # Une fois l'export terminé
-            progress_bar.setValue(98)
-            info_label.setText("Export terminé avec succès!")
-            QgsApplication.processEvents()
-            
-            # Afficher le résultat
-            progress_bar.setValue(100)
-            info_label.setText("Export terminé !")
-            QgsApplication.processEvents()
-            
-            if result_img == QgsLayoutExporter.Success:
-                progress_dialog.close()
-                QMessageBox.information(None, "Export réussi", f"La carte a été exportée avec succès en {resolution} DPI.")
-            else:
-                progress_dialog.close()
-                QMessageBox.critical(None, "Erreur d'export", "L'export a échoué. Veuillez vérifier le chemin d'enregistrement et réessayer.")
-                
-            print(f"Résultat de l'export: {result_img}")  # 0 = export réussi !
-        except Exception as e:
-            # Gérer les erreurs potentielles
-            progress_dialog.close()
-            QMessageBox.critical(None, "Erreur", f"Une erreur s'est produite lors de l'export : {str(e)}")
-            print(f"Erreur d'export : {str(e)}")
-        finally:
-            # S'assurer que la barre de progression est bien fermée
-            if progress_dialog and progress_dialog.isVisible():
-                progress_dialog.close()
-                
-            # Nettoyage explicite des ressources pour éviter les fuites de mémoire
-            try:
-                # Déréférencer les objets pour aider le garbage collector
-                exporter = None
-                dialog_layout = None
-                progress_dialog = None
-                progress_bar = None
-                info_label = None
-                warning_label = None
-            except:
-                pass
 
 
 class AuthSelectionDialog(QDialog):
     def __init__(self, auth_configs, parent=None):
         super(AuthSelectionDialog, self).__init__(parent)
         self.selected_auth_id = None
-        self.auth_config_dict = {}  # Dictionnaire pour stocker l'association entre nom et ID
         
-        self.setWindowTitle("Sélectionner une configuration d'authentification")
-
+        self.setWindowTitle("Sélection de configuration d'authentification")
+        self.setMinimumSize(400, 300)
+        
         layout = QVBoxLayout()
-
-        # List to display available authentication configurations
-        self.list_widget = QListWidget(self)
+        
+        # Label d'instructions
+        label = QLabel("Sélectionnez une configuration d'authentification pour accéder aux données protégées:")
+        layout.addWidget(label)
+        
+        # Liste des configurations d'authentification
+        self.auth_list = QListWidget()
         for auth_id, auth_config in auth_configs.items():
-            auth_name = auth_config.name()  # Obtenir le nom de la configuration
-            self.list_widget.addItem(auth_name)
-            self.auth_config_dict[auth_name] = auth_id  # Associer le nom à l'ID
-
-        layout.addWidget(self.list_widget)
-
-        # OK button
+            auth_name = auth_config.name()
+            self.auth_list.addItem(f"{auth_name} ({auth_id})")
+        layout.addWidget(self.auth_list)
+        
+        # Bouton OK
         ok_button = QPushButton("OK")
         ok_button.clicked.connect(self.accept_selection)
         layout.addWidget(ok_button)
-
+        
         self.setLayout(layout)
-
+    
     def accept_selection(self):
-        # Get the selected item from the list
-        selected_item = self.list_widget.currentItem()
-        if selected_item:
-            selected_name = selected_item.text()
-            # Récupérer l'ID associé au nom sélectionné
-            self.selected_auth_id = self.auth_config_dict.get(selected_name)
+        selected_items = self.auth_list.selectedItems()
+        if selected_items:
+            # Extraire l'ID d'authentification entre parenthèses
+            selected_text = selected_items[0].text()
+            start_pos = selected_text.rfind('(') + 1
+            end_pos = selected_text.rfind(')')
+            self.selected_auth_id = selected_text[start_pos:end_pos]
             self.accept()
         else:
-            QMessageBox.warning(self, "Sélection requise", "Veuillez sélectionner une configuration d'authentification.")
+            QMessageBox.warning(self, "Avertissement", "Veuillez sélectionner une configuration d'authentification.")
+
 
 class MapCEN:
     """QGIS Plugin Implementation."""
@@ -306,7 +164,6 @@ class MapCEN:
         """
         # Save reference to the QGIS interface
         self.iface = iface
-
         # initialize plugin directory
         self.plugin_dir = os.path.dirname(__file__)
         # initialize locale
@@ -324,206 +181,74 @@ class MapCEN:
         # Declare instance attributes
         self.actions = []
         self.menu = self.tr(u'&MapCEN')
-        self.dlg = MapCENDialog()
 
-        self.module_perim_eco = module_perim_eco()
-        self.module_perim_eco.dlg = self.dlg
-
-        self.module_loc_generale = module_loc_generale()
-        self.module_loc_generale.dlg = self.dlg
-
-        self.module_travaux = module_travaux()
-        self.module_travaux.dlg = self.dlg
-
-        # module_perim_eco.dlg = self.dlg
-        self.plugin_path = os.path.dirname(__file__)
-
-        self.dlg.commandLinkButton.clicked.connect(self.chargement_qpt)
-
-        self.dlg.comboBox_3.currentIndexChanged.connect(self.initialisation)
-        self.dlg.commandLinkButton_3.clicked.connect(self.choose_default_authentication)
-        self.dlg.pushButton.clicked.connect(self.ajout_couches)
-        self.dlg.commandLinkButton_4.clicked.connect(self.actualisation_emprise)
-
-        self.dlg.commandLinkButton_5.clicked.connect(self.ouverture_composeur)
-        self.dlg.commandLinkButton_6.clicked.connect(self.popup_resolution)
-        self.dlg.commandLinkButton_7.clicked.connect(self.show_welcome_popup)
-        # self.default_project_scale = self.iface.mapCanvas().scale()
-        # print("echelle par défaut à l'initilaisation du plugin", self.default_project_scale)
-
-        self.dlg.graphicsView.scale(2.1,2.1)
-        self.dlg.graphicsView.setMouseTracking(True)
-
-        self.dlg.horizontalSlider.valueChanged.connect(self.niveau_zoom)
-        self.dlg.mComboBox_4.checkedItemsChanged.connect(self.choix_dept)
-
-        self.dlg.comboBox.currentIndexChanged.connect(self.liste_couche_template)
-
-        self.dlg.mComboBox_3.hide()
-
-        self.dlg.comboBox_3.addItems(["MFU", "Localisation de sites", "Périmètres écologiques", "Travaux"])
-
-        self.dlg.comboBox_3.model().item(0).setEnabled(False)
-        # self.dlg.lineEdit.textChanged.connect(self.onTextChanged)
-
-        self.dlg.checkBox.stateChanged.connect(self.ajout_code_sites)
-
-        self.dlg.pushButton_2.clicked.connect(self.masquer_parcelles_voisines)
-
-        self.dlg.setMouseTracking(True)
-        # self.dlg.mComboBox_4.setEnabled(False)
-
-        self.movie = QMovie(
-            str(self.plugin_path) + "/icons/underconstruction.gif")  # récupération du gif via le chemin relatif du plugin
-        self.dlg.label_11.setMovie(self.movie)
-        self.movie.start()
-
-        tool = QgsMapToolPan(self.iface.mapCanvas())
-        tool.canvasReleaseEvent = lambda event: self.function_from_plugin(event)
-        self.iface.mapCanvas().setMapTool(tool)
-
-        ## On ajoute le nom des templates à la liste déroulante de l'onglet "mises en page" :
-        mises_en_page = []
-
-        for filename in glob.glob(self.plugin_path + "/mises_en_pages/*.qpt"):
-            mises_en_page.append(filename)
-
-
-        for i, filename in enumerate(mises_en_page):
-            nom_fichier = os.path.basename(filename)
-            self.dlg.comboBox.addItem(nom_fichier)
-
-
-        self.dlg.radioButton_6.setChecked(True)
-        self.dlg.radioButton_7.setChecked(True)
-
-
-       # Créez un QLabel pour afficher le GIF
-        self.label_loading = QLabel(self.dlg)
-
-        # Configurez le QLabel avec le GIF
-        self.loading_gif = QMovie(str(self.plugin_path) + "/icons/loading2.gif")   # Remplacez par le chemin de votre GIF
-        self.label_loading.setMovie(self.loading_gif)
-
-        # Spécifiez les dimensions souhaitées pour redimensionner le GIF
-        scaled_width = 191  # Définissez la largeur souhaitée
-        scaled_height = 188  # Définissez la hauteur souhaitée
-        self.loading_gif.setScaledSize(QSize(scaled_width, scaled_height))
-
-        # Appliquez la taille redimensionnée au QLabel
-        self.label_loading.resize(scaled_width, scaled_height)
-
-        # Calculez les coordonnées pour centrer le GIF dans le plugin
-        dlg_width = self.dlg.width()
-        dlg_height = self.dlg.height()
-        x = (dlg_width - scaled_width) // 2
-        y = (dlg_height - scaled_height) // 2
-
-        # Positionnez le QLabel au centre
-        self.label_loading.move(x, y)
-
-
-        self.label_loading.raise_()  # Place au premier plan
-
-
-        # Je rassemble toutes mes variables que je veux initialiser à une valeur vide dans un dictionnaire pour qu'elles soient assignées à une valeur à partir d'une fonction spécifique This approach avoids cluttering your class with many individual variables
-        # Je fais ça pour éviter de d'encombrer de faire une liste de course de nombreuses variables individuelles.
-        self.template_parameters = {
-            'map_size': None,
-            'map_position' : None,
-            'title_position': None,
-            'title_size': None,
-            'subtitle_position': None,
-            'subtitle_size': None,
-            'logo_position': None,
-            'logo_size': None,
-            'legend_position': None,
-            'legend_size': None,
-            'scalebar_position': None,
-            'scalebar_size': None,
-            'north_position': None,
-            'north_size': None,
-            'credit_text_position': None,
-            'credit_text_size': None,
-            'credit_text2_position': None,
-            'credit_text2_size': None,
-            # Add more variables as needed
-        }
+        # Check if plugin was started the first time in current QGIS session
+        # Must be set in initGui() to survive plugin reloads
+        self.first_start = None
+        
+        # Initialiser les attributs du plugin
+        self.dlg = None
+        self.resolution = 200  # Résolution par défaut
+        self.template_parameters = {}
+        self.layout = None
+        self.my_map1 = None
+        self.echelle = None
+        self.scalebar = None
+        self.selected_auth_id = None
+        
+        # Créer le gestionnaire de modules
+        self.module_manager = ModuleManager(self)
 
     def closeEvent(self, event):
-        # Appelle ta fonction lors de la fermeture
-        print("test")
-        # Accepte l'événement de fermeture pour fermer la fenêtre
-        
+        # Cette méthode est appelée lorsque la fenêtre principale est fermée
+        # Nettoyer les ressources
+        self.module_manager.cleanup()
         event.accept()
 
     def show_welcome_popup(self):
         """
         Affiche une fenêtre avec une image au démarrage, centre l'image et ajoute un texte en dessous.
         """
-        # Créer un QDialog (fenêtre personnalisée)
-        dialog = QDialog()
-        dialog.setWindowTitle("Nouvelle version: MapCEN !")
-
-        # Créer un layout
-        layout = QVBoxLayout()
-
-        # Ajouter une image (remplace 'maj_4.5.JPG' par le chemin de ton image)
+        # Créer une fenêtre de dialogue
+        welcome_dialog = QDialog(self.iface.mainWindow())
+        welcome_dialog.setWindowTitle("Bienvenue dans MapCEN")
+        welcome_dialog.setFixedSize(500, 400)
+        
+        # Créer un layout vertical
+        layout = QVBoxLayout(welcome_dialog)
+        
+        # Ajouter une image
         label_image = QLabel()
-        pixmap = QPixmap(self.plugin_path + "/html/images/logo_mapcen.JPG")  
-
-        # Vérifier si l'image existe et est chargée
-        if not pixmap.isNull():
-            # Redimensionner l'image à une taille raisonnable si nécessaire
-            pixmap = pixmap.scaled(600, 400, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            label_image.setPixmap(pixmap)
-            label_image.setAlignment(Qt.AlignCenter)  # Centre l'image
-        else:
-            label_image.setText("Image introuvable")
-            label_image.setAlignment(Qt.AlignCenter)
-
-        # Ajouter le label avec l'image au layout
+        pixmap = QPixmap(os.path.join(self.plugin_dir, "background_plugin.PNG"))
+        
+        # Redimensionner l'image si nécessaire
+        scaled_width = 480
+        scaled_height = 270
+        scaled_pixmap = pixmap.scaled(scaled_width, scaled_height, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        
+        label_image.setPixmap(scaled_pixmap)
+        label_image.setAlignment(Qt.AlignCenter)
         layout.addWidget(label_image)
-
-        # Créer un QLabel pour afficher le changelog en HTML
-        changelog_label = QLabel()
-        changelog_label.setWordWrap(True)  # Permet le retour à la ligne automatique
-
-        try:
-            # Charger le contenu du changelog depuis l'URL
-            _, info_changelog = self.load_urls('config/yaml/links.yaml')
-            fp = urllib.request.urlopen(info_changelog)
-            mybytes = fp.read()
-            html_changelog = mybytes.decode("utf8")
-            fp.close()
-
-            # Afficher le texte HTML dans le QLabel
-            changelog_label.setText(html_changelog)
-            changelog_label.setFont(QFont("Calibri", weight=QFont.Bold))
-
-        except Exception as e:
-            changelog_label.setText(f"Erreur lors du chargement du changelog : {e}")
-
-        # Ajouter le QLabel au layout
-        layout.addWidget(changelog_label)
-
-        # Ajouter un bouton de fermeture
-        button = QPushButton("Fermer")
-        button.clicked.connect(dialog.accept)
-        layout.addWidget(button)
-
-        # Centrer le bouton
-        layout.setAlignment(button, Qt.AlignCenter)
-
-        # Appliquer le layout à la fenêtre
-        dialog.setLayout(layout)
-
-        # Définir la taille minimum du dialog pour s'adapter à l'image et au texte
-        dialog.setMinimumSize(620, 500)  # Ajuste la taille pour correspondre à l'image, texte et bouton
-
+        
+        # Ajouter un texte de bienvenue
+        welcome_text = QLabel("Bienvenue dans MapCEN, votre outil de cartographie automatique pour les sites du Conservatoire d'Espaces Naturels de Nouvelle-Aquitaine.")
+        welcome_text.setWordWrap(True)
+        welcome_text.setAlignment(Qt.AlignCenter)
+        welcome_text.setFont(QFont("Arial", 10))
+        layout.addWidget(welcome_text)
+        
+        # Ajouter un texte d'information sur la version
+        version_text = QLabel("Version: 1.0.0")
+        version_text.setAlignment(Qt.AlignCenter)
+        layout.addWidget(version_text)
+        
+        # Ajouter un bouton pour fermer la fenêtre
+        close_button = QPushButton("Commencer")
+        close_button.clicked.connect(welcome_dialog.accept)
+        layout.addWidget(close_button)
+        
         # Afficher la fenêtre
-        dialog.exec_()
-
+        welcome_dialog.exec_()
 
 
     def is_first_run_of_new_version(self):
@@ -531,34 +256,33 @@ class MapCEN:
         Vérifie si c'est la première fois que cette version du plugin est démarrée en utilisant la version
         du plugin stockée dans 'metadata.txt' et la dernière version disponible en ligne.
         """
+        # Lire la version actuelle du plugin depuis metadata.txt
+        metadata_path = os.path.join(self.plugin_dir, 'metadata.txt')
+        current_version = None
+        
+        if os.path.exists(metadata_path):
+            with open(metadata_path, 'r') as f:
+                for line in f:
+                    if line.startswith('version='):
+                        current_version = line.strip().split('=')[1]
+                        break
+        
+        if not current_version:
+            return True  # Si on ne peut pas déterminer la version, on considère que c'est un premier démarrage
+        
+        # Vérifier la dernière version utilisée dans les paramètres QSettings
         settings = QSettings()
+        last_used_version = settings.value("MapCEN/last_used_version", "")
+        
+        # Si la version actuelle est différente de la dernière version utilisée, c'est un premier démarrage de cette version
+        is_first_run = current_version != last_used_version
+        
+        # Enregistrer la version actuelle comme dernière version utilisée
+        settings.setValue("MapCEN/last_used_version", current_version)
+        
+        return is_first_run
 
-        # Obtenir la version actuelle du plugin depuis le fichier 'metadata.txt'
-        metadonnees_plugin = open(self.plugin_path + '/metadata.txt')
-        infos_metadonnees = metadonnees_plugin.readlines()
-        version_utilisateur = infos_metadonnees[8].strip()  # Version actuelle du plugin (par exemple, '4.5.1')
 
-        # Charger la dernière version depuis l'URL
-        try:
-            last_version_url, _ = self.load_urls('config/yaml/links.yaml')
-            derniere_version = urllib.request.urlopen(last_version_url)
-            num_last_version = derniere_version.readlines()[0].decode("utf-8").strip()  # Récupérer la dernière version disponible
-        except Exception as e:
-            self.iface.messageBar().pushMessage("Error", f"Failed to load URLs: {e}", level=Qgis.Critical, duration=5)
-            return False
-
-        # Obtenir la dernière version utilisée stockée dans les paramètres
-        last_version = settings.value("MapCEN/last_version", "", type=str)
-
-        # Comparer la version actuelle avec la dernière version utilisée
-        if last_version != version_utilisateur or version_utilisateur != num_last_version:
-            # Si la version a changé, c'est un premier démarrage de cette version
-            settings.setValue("MapCEN/last_version", version_utilisateur)  # Mettre à jour la version stockée
-            return True
-
-        return False
-
-    # noinspection PyMethodMayBeStatic
     def tr(self, message):
         """Get the translation for a string using Qt translation API.
         We implement this ourselves since we do not inherit QObject.
@@ -638,45 +362,39 @@ class MapCEN:
     def initGui(self):
         """Create the menu entries and toolbar icons inside the QGIS GUI."""
 
-        # Vérifier si c'est le premier démarrage de cette version
-        if self.is_first_run_of_new_version():
-            self.show_welcome_popup()
-
-        icon_path = ':/plugins/map_cen/icons/icon.png'
+        icon_path = ':/plugins/map_cen/icon.png'
         self.add_action(
             icon_path,
             text=self.tr(u'MapCEN'),
             callback=self.run,
             parent=self.iface.mainWindow())
 
-        # Appeler la fonction pour informer l'utilisateur s'il a plus d'une configuration d'authentification
-        self.check_authentication_configs()
-
         # will be set False in run()
         self.first_start = True
+        
+        # Vérifier les configurations d'authentification
+        self.check_authentication_configs()
 
 
     def check_authentication_configs(self):
-        """Vérifie le nombre de configurations d'authentification disponibles et affiche un message si nécessaire."""
-
-        managerAU = QgsApplication.authManager()
-        auth_configs = managerAU.availableAuthMethodConfigs()  # Récupérer toutes les configurations disponibles
-
-        # Vérifier si une authentification par défaut a été définie et l'appliquer
-        settings = QSettings()
-        default_auth_id = settings.value("MapCEN/default_auth_id", None)
+        """
+        Vérifie le nombre de configurations d'authentification disponibles et affiche un message si nécessaire.
+        """
+        auth_manager = QgsApplication.authManager()
+        auth_configs = []
         
-        if default_auth_id:
-            self.apply_authentication_if_needed(QgsDataSourceUri())  
+        # Récupérer toutes les configurations d'authentification
+        for auth_id in auth_manager.availableAuthMethodConfigs().keys():
+            # Dans les versions récentes de QGIS, on utilise directement l'ID comme identifiant
+            auth_name = auth_id  # Utiliser l'ID comme nom par défaut
+            auth_configs.append((auth_id, auth_name))
+        
+        # Si aucune configuration n'est disponible, afficher un message
+        if not auth_configs:
+            QMessageBox.warning(None, "Avertissement", 
+                               "Aucune configuration d'authentification n'est disponible. "
+                               "Certaines fonctionnalités du plugin peuvent ne pas fonctionner correctement.")
 
-        elif len(auth_configs) > 1:
-            # Si plusieurs configurations sont disponibles et aucune par défaut n'est définie
-            QMessageBox.information(
-                self.iface.mainWindow(),
-                "Choix de la configuration d'authentification",
-                "<center>Vous avez plusieurs configurations d'authentification disponibles.</center><br> Veuillez vous assurer de choisir la bonne configuration pour utiliser FluxCEN.<br>"
-                "Vous pouvez définir votre configuration par défault en cliquant sur l'icone en forme de 🛠️ en bas à droite de la fenêtre du plugin."
-            )
 
     def unload(self):
         """Removes the plugin menu item and icon from QGIS GUI."""
@@ -686,67 +404,49 @@ class MapCEN:
                 action)
             self.iface.removeToolBarIcon(action)
 
+
     def function_from_plugin(self, event):
-        print(self.my_map1.scale())
+        pass
 
 
     def run(self):
         """Run method that performs all the real work"""
-
         # Create the dialog with elements (after translation) and keep reference
         # Only create GUI ONCE in callback, so that it will only load when the plugin is started
         if self.first_start == True:
             self.first_start = False
-
+            self.dlg = MapCENDialog()
+            
+            # Configurer le gestionnaire de modules
+            self.module_manager.setup(self.dlg)
+            
+            # Connecter le bouton d'options de résolution
+            self.dlg.commandLinkButton_6.clicked.connect(self.popup_resolution)
+            
+            # Connecter le bouton de configuration d'authentification par défaut
+            self.dlg.commandLinkButton_3.clicked.connect(self.choose_default_authentication)
+            
+            # Afficher la fenêtre de bienvenue si c'est le premier démarrage d'une nouvelle version
+            if self.is_first_run_of_new_version():
+                self.show_welcome_popup()
+        
+        # Initialiser le plugin
+        self.initialisation()
+        
         # show the dialog
         self.dlg.show()
-        # Run the dialog event loop
-        result = self.dlg.exec_()
-        # See if OK was pressed
-        if result:
-            # Do something useful here - delete the line containing pass and
-            # substitute with your code.
-            pass
-
-    def load_urls(self, yaml_file):
-        # Charger le fichier YAML contenant plusieurs clés
-        config_path = os.path.join(self.plugin_path, yaml_file)
-        
-        # Lire le fichier YAML
-        with open(config_path, 'r') as file:
-            config = yaml.safe_load(file)
-        
-        # Extraire les URL pour chaque clé
-        github_urls = config.get('github_urls', {})
-        depot_plugins_url = config.get('depot_plugins_url', {})
-
-        # Accéder aux sous-clés spécifiques
-        info_changelog = github_urls.get('info_changelog')
-        last_version_url = depot_plugins_url.get('last_version')
-
-        return last_version_url, info_changelog
-    
-    def choose_default_authentication(self):
-        managerAU = QgsApplication.authManager()
-        auth_configs = managerAU.availableAuthMethodConfigs()  # Récupérer toutes les configurations disponibles
-
-        if not auth_configs:
-            QMessageBox.warning(self.dlg, "Pas de configurations", "Aucune configuration d'authentification disponible.")
-            return
-
-        dialog = AuthSelectionDialog(auth_configs)
-        if dialog.exec_() == QDialog.Accepted:
-            selected_auth_id = dialog.selected_auth_id
-            # Enregistrer la configuration par défaut dans QSettings
-            settings = QSettings()
-            settings.setValue("MapCEN/default_auth_id", selected_auth_id)
-            QMessageBox.information(self.dlg, "Configuration sauvegardée", "La configuration d'authentification par défaut a été définie.")
 
 
     def apply_authentication_if_needed(self, uri):
         """
         Applique une configuration d'authentification si nécessaire.
         Charge automatiquement la configuration par défaut si elle est enregistrée dans QSettings.
+        
+        Args:
+            uri (QgsDataSourceUri): L'URI à laquelle appliquer l'authentification
+            
+        Returns:
+            bool: True si l'authentification a été appliquée avec succès, False sinon
         """
         settings = QSettings()
         default_auth_id = settings.value("MapCEN/default_auth_id", None)
@@ -767,83 +467,64 @@ class MapCEN:
             return True
         elif len(auth_configs) > 1:
             # Si plusieurs configurations sont disponibles, on invite l'utilisateur à en choisir une
-            dialog = AuthSelectionDialog(auth_configs)
+            dialog = AuthSelectionDialog(auth_configs, self.dlg)
             result = dialog.exec_()
             if result == QDialog.Accepted and dialog.selected_auth_id:
                 uri.setAuthConfigId(dialog.selected_auth_id)
                 return True
         else:
-            QMessageBox.warning(iface.mainWindow(), "Attention", "Aucune configuration d'authentification n'a été trouvée dans votre QGIS. Veuillez ajouter la configuration d'authentification CEN-NA pour charger des couches nécessitant une authentification telles que la MFU.")
-            
+            QMessageBox.warning(self.dlg, "Attention", "Aucune configuration d'authentification n'a été trouvée dans votre QGIS. Veuillez ajouter la configuration d'authentification CEN-NA pour charger des couches nécessitant une authentification telles que la MFU.")
+            return False
+        
+        return False
 
-    def choix_dept(self):
 
-        self.listes_sites_MFU_filtered = []
-
-        departement = self.dlg.mComboBox_4.checkedItems()
-
-        departements_selection = []
-
-        for item in departement:
-            departements_selection.append(item[0:2])
-
-        expression_filtre = None  # initialize with a default value
-
-        if len(self.dlg.mComboBox_4.checkedItems()) == 1:
-            expression_filtre = 'substr("codesite",1,2) = %s' % str(departements_selection[0])
-        if len(self.dlg.mComboBox_4.checkedItems()) >= 2 :
-            expression_filtre = 'substr("codesite",1,2) IN %s' % str(tuple(departements_selection))
-        if len(self.dlg.mComboBox_4.checkedItems()) > 3 :
-            QMessageBox.question(iface.mainWindow(), u"Attention !",
-                                 "Aucun site ne peut être à cheval sur plus de 3 départements, veuillez limiter la sélection à 3 sites !",
-                                 QMessageBox.Ok)
-
-        if self.dlg.mComboBox_4.currentIndex != -1:
-            for p in self.sites_gere_centroid_layer.getFeatures(QgsFeatureRequest().setFilterExpression(expression_filtre)):
-
-                codesite_index = p.fields().indexFromName('codesite')
-                nom_site_index = p.fields().indexFromName('nom_site')
-
-                if self.dlg.checkBox.isChecked():
-                    self.listes_sites_MFU_filtered.append(str(p[codesite_index]))
-                else:
-                    self.listes_sites_MFU_filtered.append(str(p[nom_site_index]))
-
-            print(self.sites_gere_centroid_layer.selectedFeatures())
-
-        else:
-            for p in self.sites_gere_centroid_layer.getFeatures():
-
-                codesite_index = p.fields().indexFromName('codesite')
-                nom_site_index = p.fields().indexFromName('nom_site')
-
-                if self.dlg.checkBox.isChecked():
-                    self.listes_sites_MFU_filtered.append(str(p[codesite_index]))
-                else:
-                    self.listes_sites_MFU_filtered.append(str(p[nom_site_index]))
-
-            print(self.sites_gere_centroid_layer.selectedFeatures()[0])
-
-        # print(self.dlg.mComboBox.checkedItems())
-        # print(self.sites_gere_centroid_layer.selectedFeatures()[0])
-        # print(self.sites_gere_centroid_layer.selectedFeatures()[0]["codesite"][:2])
-
-        self.dlg.mComboBox.clear()
-
-        self.listes_sites_MFU_filtered.sort()
-
-        self.dlg.mComboBox.addItems(self.listes_sites_MFU_filtered)
+    def popup_resolution(self):
+        """
+        Affiche une fenêtre de dialogue pour choisir la résolution d'export
+        """
+        dialog = OptionsWindow()
+        dialog.show()
     
-
+    def choose_default_authentication(self):
+        """
+        Permet à l'utilisateur de choisir une configuration d'authentification par défaut
+        qui sera utilisée automatiquement pour toutes les connexions futures
+        """
+        # Récupérer les configurations d'authentification disponibles
+        managerAU = QgsApplication.authManager()
+        auth_configs = managerAU.availableAuthMethodConfigs()
+        
+        if not auth_configs:
+            QMessageBox.warning(self.dlg, "Attention", 
+                              "Aucune configuration d'authentification n'a été trouvée dans votre QGIS. "
+                              "Veuillez d'abord ajouter une configuration d'authentification.")
+            return
+        
+        # Ouvrir la boîte de dialogue de sélection
+        dialog = AuthSelectionDialog(auth_configs, self.dlg)
+        result = dialog.exec_()
+        
+        if result == QDialog.Accepted and dialog.selected_auth_id:
+            # Enregistrer l'ID d'authentification sélectionné dans les paramètres
+            settings = QSettings()
+            settings.setValue("MapCEN/default_auth_id", dialog.selected_auth_id)
+            
+            QMessageBox.information(self.dlg, "Configuration enregistrée", 
+                                  f"La configuration d'authentification par défaut a été définie. "
+                                  f"ID: {dialog.selected_auth_id}")
+    
     def initialisation(self):
-
-        # Initialize the progress dialog
-        progress_dialog = QProgressDialog("Chargement en cours...", "Annuler", 1, 7, self.dlg)
+        """
+        Initialise le plugin en chargeant les couches nécessaires et en configurant l'interface utilisateur
+        """
+        # Créer une boîte de dialogue de progression
+        progress_dialog = QProgressDialog("Initialisation du plugin MapCEN...", "Annuler", 0, 10, self.dlg)
         progress_dialog.setWindowTitle("Initialisation")
         progress_dialog.setWindowModality(Qt.WindowModal)
         progress_dialog.setValue(1)
         
-        # Step 1: Set initial radio button states
+        # Étape 1 : Définir l'état initial des boutons radio
         self.dlg.radioButton.setChecked(True)
         self.dlg.radioButton.setEnabled(True)
         self.dlg.radioButton_2.setEnabled(True)
@@ -852,131 +533,76 @@ class MapCEN:
         progress_dialog.setValue(2)
         if progress_dialog.wasCanceled():
             progress_dialog.close()
-            return  # Exit if the user cancels
+            return  # Sortir si l'utilisateur annule
 
-        # Step 2: Module initialization based on comboBox_3 selection
-        if self.dlg.comboBox_3.currentText() == "Périmètres écologiques":
-            self.module_perim_eco.initialisation()
-        elif self.dlg.comboBox_3.currentText() == "Localisation de sites":
-            self.module_loc_generale.initialisation()
-        elif self.dlg.comboBox_3.currentText() == "Travaux":
-            self.module_travaux.initialisation()
-        else:
-            self.dlg.mComboBox_3.hide()
-            self.dlg.label_15.hide()
+        # Étape 2 : Initialisation du module en fonction de la sélection dans comboBox_3
+        # Cette étape est maintenant gérée par le gestionnaire de modules
+        self.module_manager.on_module_selection_changed(self.dlg.comboBox_3.currentText())
 
         progress_dialog.setValue(3)
         if progress_dialog.wasCanceled():
             progress_dialog.close()
             return
 
-        # Step 3: Set up the URI and apply authentication
+        # Étape 3 : Configurer l'URI et appliquer l'authentification
+        print("[DEBUG] Étape 3: Configuration de l'URI pour Sites gérés CEN-NA")
         uri = QgsDataSourceUri()
         uri.setParam("url", "https://opendata.cen-nouvelle-aquitaine.org/geoserver/fonciercen/wfs")
         uri.setParam("typename", "fonciercen:site_gere_point")
+        print(f"[DEBUG] URI pour Sites gérés CEN-NA: {uri.uri()}")
         if not self.apply_authentication_if_needed(uri):
+            print("[DEBUG] Échec de l'authentification pour Sites gérés CEN-NA")
             progress_dialog.close()
-            return  # Exit if authentication fails
-        
+            return  # Sortir si l'authentification échoue
+
+        # Étape 4 : Charger la couche protégée
+        print("[DEBUG] Étape 4: Chargement de la couche Sites gérés CEN-NA")
+        self.sites_gere_centroid_layer = QgsVectorLayer(uri.uri(), "Sites gérés CEN-NA", "WFS")
+        if not self.sites_gere_centroid_layer.isValid():
+            print("[DEBUG] La couche Sites gérés CEN-NA n'est pas valide")
+            QMessageBox.warning(self.dlg, "Erreur de chargement", "Impossible de charger la couche 'Sites gérés CEN-NA'.")
+            progress_dialog.close()
+            return
+        else:
+            print("[DEBUG] La couche Sites gérés CEN-NA a été chargée avec succès")
+            QgsProject.instance().addMapLayer(self.sites_gere_centroid_layer)
+
         progress_dialog.setValue(4)
         if progress_dialog.wasCanceled():
             progress_dialog.close()
             return
 
-        # Step 4: Load the protected layer
-        self.sites_gere_centroid_layer = QgsVectorLayer(uri.uri(), "Sites gérés CEN-NA", "WFS")
-        if not self.sites_gere_centroid_layer.isValid():
-            QMessageBox.warning(self.dlg, "Erreur de chargement", "Impossible de charger la couche 'Sites gérés CEN-NA'.")
+        # Étape 5 : Charger la couche des parcelles
+        print("[DEBUG] Étape 5: Configuration de l'URI pour Parcelles CEN NA en MFU")
+        uri2 = QgsDataSourceUri()
+        uri2.setParam("url", "https://opendata.cen-nouvelle-aquitaine.org/geoserver/fonciercen/wfs")
+        uri2.setParam("typename", "fonciercen:mfu_cenna")
+        print(f"[DEBUG] URI pour Parcelles CEN NA en MFU: {uri2.uri()}")
+        if not self.apply_authentication_if_needed(uri2):
+            print("[DEBUG] Échec de l'authentification pour Parcelles CEN NA en MFU")
             progress_dialog.close()
             return
-        
+
+        print("[DEBUG] Chargement de la couche Parcelles CEN NA en MFU")
+        self.parcelles_layer = QgsVectorLayer(uri2.uri(), "Parcelles CEN NA en MFU", "WFS")
+        if not self.parcelles_layer.isValid():
+            print("[DEBUG] La couche Parcelles CEN NA en MFU n'est pas valide")
+            QMessageBox.warning(self.dlg, "Erreur de chargement", "Impossible de charger la couche 'Parcelles CEN NA en MFU'.")
+            progress_dialog.close()
+            return
+        else:
+            print("[DEBUG] La couche Parcelles CEN NA en MFU a été chargée avec succès")
+            QgsProject.instance().addMapLayer(self.parcelles_layer)
+
         progress_dialog.setValue(5)
         if progress_dialog.wasCanceled():
             progress_dialog.close()
             return
 
-        # Step 5: Populate lists for ComboBoxes
-        self.listes_sites_MFU = []
-        for p in self.sites_gere_centroid_layer.getFeatures():
-            nom_site_index = p.fields().indexFromName('nom_site')
-            self.listes_sites_MFU.append(str(p[nom_site_index]))
-        self.dlg.mComboBox.addItems(self.listes_sites_MFU)
-        
-        progress_dialog.setValue(6)
-        if progress_dialog.wasCanceled():
-            progress_dialog.close()
-            return
-
-        # Step 6: Populate departments ComboBox
-        self.dlg.mComboBox_4.clear()
-        dpts_NA = ["16 - Charente", "17 - Charente-Maritime", "19 - Corrèze", "23 - Creuse", "24 - Dordogne",
-                "33 - Gironde", "40 - Landes", "47 - Lot-et-Garonne", "64 - Pyrénées-Atlantique", "79 - Deux-Sèvres",
-                "86 - Vienne", "87 - Haute-Vienne"]
-        self.dlg.mComboBox_4.addItems(dpts_NA)
-        
-        progress_dialog.setValue(7)
-
-        # Close the progress dialog when initialization is complete
-        progress_dialog.close()
-
-        
-    def ajout_code_sites(self):
-
-        # self.listes_sites_MFU.clear()
-        # self.dlg.mComboBox.clear()
-
-        if self.dlg.checkBox.isChecked():
-            for p in self.sites_gere_centroid_layer.getFeatures():
-                codesite_index = p.fields().indexFromName('codesite')
-                self.listes_sites_MFU.append(str(p[codesite_index]))
-
-        else:
-            for p in self.sites_gere_centroid_layer.getFeatures():
-                nom_site_index = p.fields().indexFromName('nom_site')
-                self.listes_sites_MFU.append(str(p[nom_site_index]))
-
-        self.dlg.mComboBox.addItems(self.listes_sites_MFU)
-
-        self.choix_dept()
-
-    def ajout_couches(self):
-
-        self.dlg.commandLinkButton_4.setEnabled(True)
-
-        ### -------------------- Chargement des sites fonciercen ---------------------- ###
-
-        # Initialisation de `uri` ici avant de le passer à `apply_authentication_if_needed`
-        uri = QgsDataSourceUri()
-        uri.setParam("url", "https://opendata.cen-nouvelle-aquitaine.org/geoserver/fonciercen/wfs")
-        uri.setParam("typename", "fonciercen:mfu_cenna")
-
-        # Appliquer l'authentification
-        if not self.apply_authentication_if_needed(uri):
-            return  # Abandonner si l'authentification échoue
-
-        # Vérifier si les couches sont déjà présentes
-        couche_parcelles_existe = QgsProject.instance().mapLayersByName("Parcelles CEN NA en MFU")
+        # Étape 6 : Charger la couche des départements
+        # Chargement ou récupération de la couche 'Département'
         depts_existe = QgsProject.instance().mapLayersByName("Département")
 
-        if couche_parcelles_existe and depts_existe:
-            # Si les deux couches sont déjà chargées, on affiche un message et on quitte la fonction
-            iface.messageBar().pushMessage("Couches déjà chargées", "Les couches 'Parcelles CEN NA en MFU' et 'Département' sont déjà présentes dans le canevas QGIS.", level=Qgis.Success, duration=5)
-            return
-
-        # Chargement ou récupération de la couche 'Parcelles CEN NA en MFU'
-        if couche_parcelles_existe:
-            self.layer = couche_parcelles_existe[0]
-            iface.messageBar().pushMessage("Couche 'Parcelles CEN NA en MFU'", "La couche 'Parcelles CEN NA en MFU' est déjà chargée dans le canevas QGIS.", level=Qgis.Success, duration=5)
-        else:
-            self.layer = QgsVectorLayer(uri.uri(), "Parcelles CEN NA en MFU", "WFS")
-            if not self.layer or not self.layer.isValid():
-                QMessageBox.critical(iface.mainWindow(), "Erreur de chargement", "Impossible de charger la couche 'Parcelles CEN NA en MFU'. Veuillez contacter le pôle DSI !", QMessageBox.Ok)
-                return
-            QgsProject.instance().addMapLayer(self.layer)
-            self.layer.loadNamedStyle(self.plugin_path + '/styles_couches/mfu_cenna.qml')
-            self.layer.triggerRepaint()
-
-        # Chargement ou récupération de la couche 'Département'
         if depts_existe:
             self.depts_NA = depts_existe[0]
             iface.messageBar().pushMessage("Couche 'Département'", "La couche 'Département' est déjà chargée dans le canevas QGIS.", level=Qgis.Success, duration=5)
@@ -988,979 +614,57 @@ class MapCEN:
                 QMessageBox.critical(iface.mainWindow(), "Erreur de chargement", "Impossible de charger la couche 'Département'. Veuillez contacter le pôle DSI !", QMessageBox.Ok)
                 return
 
-        # Chargement conditionnel du module 'Périmètres écologiques' en fonction de la sélection dans comboBox_3
-        if self.dlg.comboBox_3.currentText() == "Périmètres écologiques":
-            self.module_perim_eco.chargement_perim_eco()
-
-        # Rafraîchir le canevas de la carte
-        iface.mapCanvas().refresh()
-
-    def onTextChanged(self, filter_text):
-
-        filtered_sites_MFU = [item for item in self.listes_sites_MFU if item.lower().startswith(filter_text.lower())]
-
-        checked_items = self.dlg.mComboBox.checkedItems()
-
-        self.dlg.mComboBox.addItems(filtered_sites_MFU)
-
-        # retain checked items
-        for checked_item in checked_items:
-            parent = parcelles_MFU.parent()
-            parent.insertChildNode(1, myClone)
-            parent.removeChildNode(parcelles_MFU)
-
-        # On place la couche "Depts_NA" en première dans le gestionnaire des couches
-        departements_NA = root.findLayer(self.depts_NA.id())
-        if departements_NA:
-            myClone = departements_NA.clone()
-            parent = departements_NA.parent()
-            parent.insertChildNode(0, myClone)
-            parent.removeChildNode(departements_NA)
-            
-    def charger_fond_carte(self):
-        """
-        Charge le fond de carte approprié en fonction du bouton radio sélectionné
-        et retourne la référence à ce fond de carte.
-        """
-        fond_carte = None
-
-        # Chargement du fond de carte en fonction du bouton radio sélectionné
-        if self.dlg.radioButton.isChecked() == True:
-            uri = "url=https://data.geopf.fr/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities&service=WMS&version=1.3.0&crs=EPSG:2154&format=image/png&layers=HR.ORTHOIMAGERY.ORTHOPHOTOS&styles"
-            self.fond = QgsRasterLayer(uri, "BD Ortho IGN", 'wms')
-
-            if not QgsProject.instance().mapLayersByName("BD Ortho IGN"):
-                QgsProject.instance().addMapLayer(self.fond)
-            else:
-                print("Le fond de carte 'BD Ortho IGN' est déjà chargé")
-
-            fond_carte = QgsProject.instance().mapLayersByName("BD Ortho IGN")[0]
-
-        elif self.dlg.radioButton_2.isChecked() == True:
-            tms = 'type=xyz&url=https://tile.openstreetmap.org/{z}/{x}/{y}.png&zmax=19&zmin=0'
-            self.fond = QgsRasterLayer(tms, 'OSM', 'wms')
-
-            if not QgsProject.instance().mapLayersByName("OSM"):
-                QgsProject.instance().addMapLayer(self.fond)
-            else:
-                print("Le fond de carte OSM est déjà chargé")
-
-            fond_carte = QgsProject.instance().mapLayersByName("OSM")[0]
-
-        elif self.dlg.radioButton_3.isChecked() == True:
-            uri = 'contextualWMSLegend=0&crs=EPSG:2154&dpiMode=7&featureCount=10&format=image/jpeg&http-header:apikey=ign_scan_ws&layers=SCAN25TOUR_PYR-JPEG_WLD_WM&styles&tilePixelRatio=0&url=https://data.geopf.fr/private/wms-r?VERSION%3D1.3.0'
-            self.fond = QgsRasterLayer(uri, "SCAN25 IGN", "wms")
-
-            if not QgsProject.instance().mapLayersByName("SCAN25 IGN"):
-                QgsProject.instance().addMapLayer(self.fond)
-            else:
-                print("Le fond de carte SCAN25 IGN est déjà chargé")
-
-            fond_carte = QgsProject.instance().mapLayersByName("SCAN25 IGN")[0]
-
-        elif self.dlg.radioButton_4.isChecked() == True:
-            uri = 'url=https://data.geopf.fr/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities&service=WMS&version=1.3.0&crs=EPSG:2154&format=image/png&layers=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&styles'
-            self.fond = QgsRasterLayer(uri, "Plan IGN", "wms")
-
-            if not QgsProject.instance().mapLayersByName("Plan IGN"):
-                QgsProject.instance().addMapLayer(self.fond)
-            else:
-                print("Le fond de carte 'Plan IGN' est déjà chargé")
-
-            fond_carte = QgsProject.instance().mapLayersByName("Plan IGN")[0]
-            
-        return fond_carte
-        
-    def organiser_couches(self, fond_carte):
-        """
-        Organise les couches dans le gestionnaire de couches QGIS
-        """
-        if not fond_carte:
-            return
-            
-        # Ordre des couches dans gestionnaires couches : fond de carte sous les autres couches
-        root = QgsProject.instance().layerTreeRoot()
-        fond_carte_node = root.findLayer(fond_carte.id())
-        
-        if fond_carte_node:
-            myClone = fond_carte_node.clone()
-            parent = fond_carte_node.parent()
-            parent.insertChildNode(-1, myClone)
-            parent.removeChildNode(fond_carte_node)
-
-        # On place la couche "Parcelles MFU" en deuxième dans le gestionnaire des couches
-        parcelles_MFU = root.findLayer(self.layer.id())
-        if parcelles_MFU:
-            myClone = parcelles_MFU.clone()
-            parent = parcelles_MFU.parent()
-            parent.insertChildNode(1, myClone)
-            parent.removeChildNode(parcelles_MFU)
-
-        # On place la couche "Depts_NA" en première dans le gestionnaire des couches
-        departements_NA = root.findLayer(self.depts_NA.id())
-        if departements_NA:
-            myClone = departements_NA.clone()
-            parent = departements_NA.parent()
-            parent.insertChildNode(0, myClone)
-            parent.removeChildNode(departements_NA)
-    
-    def actualisation_emprise(self):
-        """
-        Méthode principale pour actualiser l'emprise de la carte
-        
-        Returns:
-            QgsRasterLayer: Le fond de carte chargé ou None en cas d'erreur
-        """
-        self.dlg.pushButton_2.setEnabled(True)
-
-        # Vérifier la sélection de sites CEN uniquement si mComboBox est activé
-        if self.dlg.mComboBox.isEnabled() and len(self.dlg.mComboBox.checkedItems()) < 1:
-            QMessageBox.question(iface.mainWindow(), u"Attention !", "Veuillez sélectionner au moins un site CEN !", QMessageBox.Ok)
-            return None
-
-        # Vérifier et charger la couche des sites CEN
-        if QgsProject.instance().mapLayersByName("Sites gérés CEN-NA"):
-            self.sites_gere_centroid_layer.removeSelection()
-        else:
-            QgsProject.instance().addMapLayer(self.sites_gere_centroid_layer)
-        
-        if not self.sites_gere_centroid_layer:
-            QMessageBox.question(iface.mainWindow(), u"Erreur !",
-                                "Impossible de charge la couche 'Sites gérés CEN-NA', veuillez contacter le pôle DSI !",
-                                QMessageBox.Ok)
-            return None
-
-        # Charger le fond de carte approprié
-        fond_carte = self.charger_fond_carte()
-        
-
-        self.organiser_couches(fond_carte)
-
-        self.zoom_emprise_sites_selectionnes()
-            
-        return fond_carte
-            
-    def zoom_emprise_sites_selectionnes(self):
-        """
-        Zoom sur l'emprise des sites sélectionnés
-        
-        """
-        self.layer.setSubsetString('')
-        self.layer.removeSelection()
-        # ### Zoom sur emprise du ou des sites CEN selectionnés:
-
-        for sites in self.dlg.mComboBox.checkedItems():
-            if self.dlg.checkBox.isChecked():
-                self.sites_gere_centroid_layer.selectByExpression('"codesite"= \'{0}\''.format(sites.replace("'", "''")), QgsVectorLayer.AddToSelection)
-                self.layer.selectByExpression('"codesite"= \'{0}\''.format(sites.replace("'", "''")), QgsVectorLayer.AddToSelection)
-
-            else:
-                self.sites_gere_centroid_layer.selectByExpression('"nom_site"= \'{0}\''.format(sites.replace("'", "''")), QgsVectorLayer.AddToSelection)
-                self.layer.selectByExpression('"nom_site"= \'{0}\''.format(sites.replace("'", "''")), QgsVectorLayer.AddToSelection)
-
-        iface.mapCanvas().zoomToSelected(self.layer)
-
-        QgsProject.instance().setCrs(QgsCoordinateReferenceSystem.fromEpsgId(2154))
-
-
-        self.pointage_sites_selectiones()
-
-
-    def pointage_sites_selectiones(self):
-        """
-        Applique un style de pointage aux sites sélectionnés
-
-        """
-
-        rules = (
-            ('Site CEN sélectionné', "is_selected()", 'red'),
-        )
-
-        # create a new rule-based renderer
-        symbol = QgsSymbol.defaultSymbol(self.sites_gere_centroid_layer.geometryType())
-        renderer = QgsRuleBasedRenderer(symbol)
-
-        # get the "root" rule
-        root_rule = renderer.rootRule()
-
-        for label, expression, color_name in rules:
-            # create a clone (i.e. a copy) of the default rule
-            rule = root_rule.children()[0].clone()
-            # set the label, expression and color
-            rule.setLabel(label)
-            rule.setFilterExpression(expression)
-            symbol_layer = rule.symbol().symbolLayer(0)
-            color = symbol_layer.color()
-            generator = QgsGeometryGeneratorSymbolLayer.create({})
-            generator.setSymbolType(QgsSymbol.Marker)
-            generator.setGeometryExpression("centroid($geometry)")
-            generator.setColor(QColor('Red'))
-            rule.symbol().setColor(QColor(color_name))
-            # set the scale limits if they have been specified
-            # append the rule to the list of rules
-            rule.symbol().changeSymbolLayer(0, generator)
-            root_rule.appendChild(rule)
-
-        # delete the default rule
-        root_rule.removeChildAt(0)
-
-        # apply the renderer to the layer
-        self.sites_gere_centroid_layer.setRenderer(renderer)
-        # refresh the layer on the map canvas
-        self.sites_gere_centroid_layer.triggerRepaint()
-
-        self.choix_type_mise_en_page()
-        
-
-    def choix_type_mise_en_page(self):
-
-        # Appeler la mise en page appropriée selon le module actif
-        if self.dlg.comboBox_3.currentText() == "Travaux":
-            self.module_travaux.choix_mise_en_page()
-        elif self.dlg.comboBox_3.currentText() == "Périmètres écologiques":
-            self.module_perim_eco.mise_en_page()
-        elif self.dlg.comboBox_3.currentText() == "Localisation de sites":
-            self.module_loc_generale.mise_en_page()
-        else:
-            self.mise_en_page()
-
-
-    def masquer_parcelles_voisines(self):
-
-        selected_sites = [site.replace("'", "''") for site in self.dlg.mComboBox.checkedItems()]
-
-        if selected_sites:
-            # Filtrer par code ou nom de site selon l'état de la checkBox
-            if self.dlg.checkBox.isChecked():
-                filter_expression = '"codesite" IN ({0})'.format(", ".join(f"'{site}'" for site in selected_sites))
-            else:
-                filter_expression = '"nom_site" IN ({0})'.format(", ".join(f"'{site}'" for site in selected_sites))
-
-            # Appliquer le filtre sur la couche
-            self.layer.setSubsetString(filter_expression)
-        else:
-            QMessageBox.information(iface.mainWindow(), "Aucun site sélectionné", "Veuillez sélectionner au moins un site CEN pour appliquer le filtre.", QMessageBox.Ok)
-
-        # Rafraîchir la carte pour afficher uniquement les parcelles sélectionnées
-        iface.mapCanvas().refresh()
-        self.mise_en_page()
-
-
-    def mise_en_page(self):
-
-        myRenderer = self.depts_NA.renderer()
-
-        if self.depts_NA.geometryType() == QgsWkbTypes.PolygonGeometry:
-            mySymbol1 = QgsSymbol.defaultSymbol(self.depts_NA.geometryType())
-            fill_layer = QgsSimpleFillSymbolLayer.create(
-                {'color': '255,255,255,255', 'outline_color': '0,0,0,255', 'outline_width': '0.1'}
-            )
-            mySymbol1.changeSymbolLayer(0, fill_layer)
-            myRenderer.setSymbol(mySymbol1)
-
-        self.depts_NA.triggerRepaint()
-
-        self.dlg.horizontalSlider.setValue(0)
-
-        # ajout de la date, l'auteur, source etc...
-        date_du_jour = date.today().strftime("%d/%m/%Y")
-
-        # QgsProject.instance().layerTreeRoot().findLayer(self.sites_gere_centroid_layer.id()).setItemVisibilityChecked(False)
-
-        ## Ajout de la mise en page au composeur de carte:
-
-        project = QgsProject.instance()
-        self.manager = project.layoutManager()
-        layout_name = 'Mise en page automatique MapCEN (MFU)'
-        layouts_list = self.manager.printLayouts()
-        # Just 4 debug
-        # remove any duplicate layouts
-        for self.layout in layouts_list:
-            if self.layout.name() == layout_name:
-                self.manager.removeLayout(self.layout)
-            #     reply = QMessageBox.question(None, (u'Delete layout...'),
-            #                                  (
-            #                                      u"There's already a layout named '%s'\nDo you want to delete it?")
-            #                                  % layout_name,
-            #                                  QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-            #     if reply == QMessageBox.No:
-            #         return
-            #     else:
-            #         manager.removeLayout(layout)
-            #         print((u"Previous layout names '%s' removed... ") % layout_name)
-
-        self.layout = QgsPrintLayout(project)
-        self.layout.initializeDefaults()
-        # manager.addLayout(layout)
-        self.layout.setName(layout_name)
-
-
-        ## Add map to layout
-        self.my_map1 = QgsLayoutItemMap(self.layout)
-
-        # Charger une carte vide
-        self.my_map1.setRect(20, 20, 20, 20)
-
-
-        self.my_map1.setLayers([self.layer, self.fond])
-
-
-        # Mettre le canvas courant comme emprise
-        self.my_map1.setExtent(iface.mapCanvas().extent())
-
-        # Position de la carte dans le composeur
-        self.my_map1.attemptMove(QgsLayoutPoint(5, 23, QgsUnitTypes.LayoutMillimeters))
-
-        #on dimensionne le rendu de la carte (pour référence la page totale est une page A4 donc 297*210)
-        self.my_map1.attemptResize(QgsLayoutSize(185, 182, QgsUnitTypes.LayoutMillimeters))
-        self.my_map1.refresh()
-
-        self.my_map1.setBackgroundColor(QColor(255, 255, 255, 255))
-        self.my_map1.setFrameEnabled(True)
-        self.layout.addLayoutItem(self.my_map1)
-
-        self.my_map1.setId("carte_principale_MFU")
-        # print(self.my_map1.id())
-
-        # --- create map item 2 (shapefile, raster 2, basemap)
-
-        my_map2 = QgsLayoutItemMap(self.layout)
-        my_map2.setRect(20, 20, 20, 20)
-        my_map2.setPos(213, 28)
-        my_map2.setFrameEnabled(False)
-
-        my_map2.setLayers([self.sites_gere_centroid_layer, self.depts_NA])
-
-        ## Ajustement de l'emprise de la couche depts_CEN-NA au CRS 2154 :
-
-        crsSrc = QgsCoordinateReferenceSystem("EPSG:4326")
-
-        # recherche du CRS du projet pour réaliser transformation (normalement 2154):
-        crsDest = QgsCoordinateReferenceSystem(QgsCoordinateReferenceSystem("EPSG:2154"))
-        transformContext = QgsProject.instance().transformContext()
-        xform = QgsCoordinateTransform(crsSrc, crsDest, transformContext)
-
-        # forward transformation: src -> dest
-        extent = xform.transform(self.depts_NA.extent())
-
-        my_map2.setExtent(extent)
-        my_map2.setScale(30000000)
-
-        my_map2.attemptMove(QgsLayoutPoint(213, 28, QgsUnitTypes.LayoutMillimeters))
-        my_map2.attemptResize(QgsLayoutSize(63, 63, QgsUnitTypes.LayoutMillimeters))
-
-        my_map2.refresh()
-
-        self.layout.addLayoutItem(my_map2)
-
-
-        ## Ajout de la legende :
-        legend = QgsLayoutItemLegend(self.layout)
-        # legend.setTitle('Legende')
-        legend.adjustBoxSize()
-        legend.setFrameEnabled(False)
-        legend.setAutoUpdateModel(False)
-
-        root = QgsLayerTree()
-        # root.addLayer(self.layer).setUseLayerName(False)
-        # root.addLayer(self.layer).setName("Types de maîtrise")
-
-        legend.updateLegend()
-
-        legend.setLegendFilterByMapEnabled(True)
-        self.layout.addItem(legend)
-        legend.setLinkedMap(self.my_map1)
-
-        layer_to_remove = self.fond
-        legend.model().rootGroup().removeLayer(layer_to_remove)
-
-        legend.attemptMove(QgsLayoutPoint(200, 99, QgsUnitTypes.LayoutMillimeters))
-
-        # legend.setColumnCount(3)
-
-        legend.setColumnCount(0)
-        legend.setEqualColumnWidth(True)
-        legend.setSplitLayer(True)
-
-
-        legend.setWrapString("*")
-
-        legend.adjustBoxSize()
-
-        self.layout.refresh()
-
-
-
-        ## Ajout d'un titre à la mise en page
-        title = QgsLayoutItemLabel(self.layout)
-        self.layout.addLayoutItem(title)
-
-        #lorsque sites de plusieurs départements sélectionnés, on les stockes dans une liste pour afficher les n° départements dans le titre:
-        code_dpt = []
-        for i in self.sites_gere_centroid_layer.selectedFeatures():
-            code_dpt.append(i["codesite"][:2])
-
-        if len(self.dlg.mComboBox_4.checkedItems()) > 1:
-            titre = str(', '.join(self.dlg.mComboBox.checkedItems()) + " " + str(tuple([int(x) for x in code_dpt])) )
-        else:
-            titre = str(', '.join(self.dlg.mComboBox.checkedItems()) + " (" + self.sites_gere_centroid_layer.selectedFeatures()[0]["codesite"][:2] + ")")
-
-        title.setText(titre)
-        title.setFont(QFont("Calibri", 16, QFont.Bold))
-        title.attemptMove(QgsLayoutPoint(4.2, 5.8, QgsUnitTypes.LayoutMillimeters))
-        title.adjustSizeToText()
-        self.layout.addItem(title)
-
-
-        ## Ajout d'un sous-titre à la mise en page
-        subtitle = QgsLayoutItemLabel(self.layout)
-        self.layout.addLayoutItem(subtitle)
-        titre = str("Maîtrise foncière ou d'usage au " + date_du_jour)
-        subtitle.setText(titre)
-        subtitle.setFont(QFont("Calibri", 14))
-        subtitle.attemptMove(QgsLayoutPoint(10.5, 13.5, QgsUnitTypes.LayoutMillimeters))
-        subtitle.adjustSizeToText()
-        self.layout.addItem(subtitle)
-
-
-        ## Ajout du logo CEN NA en haut à gauche de la page
-        layoutItemPicture = QgsLayoutItemPicture(self.layout)
-        layoutItemPicture.setResizeMode(QgsLayoutItemPicture.Zoom)
-        layoutItemPicture.setMode(QgsLayoutItemPicture.FormatRaster)
-        layoutItemPicture.setPicturePath(self.plugin_path + '/logo.jpg')
-
-
-        # dim_image_original = [250, 84]
-        # new_dim = [i * 0.15 for i in dim_image_original]
-        layoutItemPicture.attemptMove(QgsLayoutPoint(218, 5, QgsUnitTypes.LayoutMillimeters))
-        layoutItemPicture.attemptResize(QgsLayoutSize(720,249, QgsUnitTypes.LayoutPixels))
-
-        self.layout.addLayoutItem(layoutItemPicture)
-
-
-        ## Ajout de l'échelle à la mise en page
-        self.scalebar = QgsLayoutItemScaleBar(self.layout)
-        self.scalebar.setStyle('Single Box')
-        self.scalebar.setLinkedMap(self.my_map1)
-        self.scalebar.applyDefaultSize()
-        self.scalebar.applyDefaultSettings()
-
-        self.scalebar.setNumberOfSegments(2)
-        self.scalebar.setNumberOfSegmentsLeft(0)
-
-        self.layout.addLayoutItem(self.scalebar)
-        self.scalebar.attemptMove(QgsLayoutPoint(222,178, QgsUnitTypes.LayoutMillimeters))
-        self.scalebar.setFixedSize(QgsLayoutSize(50, 15))
-
-
-        # ajout de la fleche du Nord
-        north = QgsLayoutItemPicture(self.layout)
-        north.setPicturePath(self.plugin_path + "/NorthArrow_02.svg")
-        self.layout.addLayoutItem(north)
-        north.attemptResize(QgsLayoutSize(8.4, 12.5, QgsUnitTypes.LayoutMillimeters))
-        north.attemptMove(QgsLayoutPoint(205,178, QgsUnitTypes.LayoutMillimeters))
-
-
-
-        info = ["Réalisation : " + "DSI / CEN Nouvelle-Aquitaine (" + date_du_jour + ")"]
-        credit_text = QgsLayoutItemLabel(self.layout)
-        credit_text.setText(info[0])
-        credit_text.setFont(QFont("Calibri", 11))
-        self.layout.addLayoutItem(credit_text)
-        credit_text.attemptMove(QgsLayoutPoint(200, 200, QgsUnitTypes.LayoutMillimeters))
-        credit_text.adjustSizeToText()
-        # credit_text.attemptResize(QgsLayoutSize(95, 5, QgsUnitTypes.LayoutMillimeters))
-
-
-        info2 = ["Source: IGN (fond de carte), IGN (Admin Express), cadastre ETALAB, FoncierCEN"]
-        credit_text2 = QgsLayoutItemLabel(self.layout)
-        credit_text2.setText(info2[0])
-        credit_text2.setFont(QFont("Calibri", 9))
-        credit_text2.setItemRotation(-90)
-        self.layout.addLayoutItem(credit_text2)
-        credit_text2.attemptMove(QgsLayoutPoint(191, 204, QgsUnitTypes.LayoutMillimeters))
-        credit_text2.adjustSizeToText()
-        # credit_text2.attemptResize(QgsLayoutSize(150, 4, QgsUnitTypes.LayoutMillimeters))
-
-        temp_layer = self.sites_gere_centroid_layer.materialize(QgsFeatureRequest().setFilterFids(self.sites_gere_centroid_layer.selectedFeatureIds()))
-
-        surf_parcelles_site_selectionne = temp_layer.aggregate(QgsAggregateCalculator.Sum, "contenance_mfu_m2")
-        surf_ha = round(surf_parcelles_site_selectionne[0] / 10000, 2)
-        info3 = "Surface totale maîtrisée sur le site : " + str(surf_ha) + " ha."
-        credit_text3 = QgsLayoutItemLabel(self.layout)
-        credit_text3.setText(info3)
-        credit_text3.setFont(QFont("Calibri", 12, italic=True))
-        self.layout.addLayoutItem(credit_text3)
-        credit_text3.attemptMove(QgsLayoutPoint(205, 92, QgsUnitTypes.LayoutMillimeters))
-        credit_text3.adjustSizeToText()
-        # credit_text3.attemptResize(QgsLayoutSize(90, 8, QgsUnitTypes.LayoutMillimeters))
-
-
-        # Finally add layout to the project via its manager
-        self.manager.addLayout(self.layout)
-
-        self.zoom_to_layer()
-
-        self.echelle = self.my_map1.scale()
-
-        self.bar_echelle_auto(self.my_map1,  self.scalebar)
-
-
-    def ouverture_composeur(self):
-
-        ###  -------------------- Automatisation de la mise en page ----------------------- ###
-        if self.dlg.comboBox_3.currentText() == "Périmètres écologiques":
-            iface.openLayoutDesigner(self.module_perim_eco.layout_carto_perim_eco)
-        elif self.dlg.comboBox_3.currentText() == "Localisation de sites":
-            iface.openLayoutDesigner(self.module_loc_generale.layout_carto_generale)
-        elif self.dlg.comboBox_3.currentText() == "Travaux":
-            iface.openLayoutDesigner(self.module_travaux.layout_carto_travaux)
-        else:
-            iface.openLayoutDesigner(self.layout)
-
-        #### Pour ajouter deuxieme carte au composer d'impression:
-        ##https://gis.stackexchange.com/questions/331723/display-two-different-maps-with-different-layers-in-one-layout-in-pyqgis-proble
-
-
-    def zoom_to_layer(self):
-
-        self.layout2 = QgsProject.instance().layoutManager().layoutByName('Mise en page automatique MapCEN (MFU)').clone()
-        self.dlg.graphicsView.setScene(self.layout2)
-
-
-    def export(self, options_instance=None):
-        # Vérifie si la fonction est appelée depuis OptionsWindow
-        if options_instance and hasattr(options_instance, 'a'):
-            # Utiliser la résolution définie dans OptionsWindow
-            resolution_dpi = options_instance.a
-            # Demander à l'utilisateur où enregistrer l'image
-            fileName = QFileDialog.getSaveFileName(None, 'Sauvegarder en jpg', '', filter='*.jpg')
-            if not fileName or not fileName[0]:
-                return  # L'utilisateur a annulé
-        else:
-            # Si appelé directement, ouvrir la fenêtre d'options
-            options_window = OptionsWindow()
-            options_window.show()
-            # La fonction sera rappelée via set_resolution avec la résolution choisie
-            return
-            
-        dossier_sauvegarde = fileName[0]
-
-        ###  -------------------- Automatisation de la mise en page ----------------------- ###
-        # Déterminer la mise en page à utiliser
-        try:
-            if self.dlg.comboBox_3.currentText() == "Périmètres écologiques":
-                layout = QgsProject.instance().layoutManager().layoutByName('Mise en page automatique MapCEN (Périmètres écologiques)')
-            elif self.dlg.comboBox_3.currentText() == "Localisation de sites":
-                layout = QgsProject.instance().layoutManager().layoutByName('Mise en page automatique MapCEN (Carto de localisation générale)')
-            elif self.dlg.comboBox_3.currentText() == "Travaux":
-                layout = QgsProject.instance().layoutManager().layoutByName('Mise en page automatique MapCEN (Travaux)')
-            else:
-                layout = QgsProject.instance().layoutManager().layoutByName('Mise en page automatique MapCEN (MFU)')
-        except:
-            # Si on est appelé depuis OptionsWindow, self.dlg n'existe peut-être pas
-            layout = QgsProject.instance().layoutManager().layoutByName('Mise en page automatique MapCEN (MFU)')
-        
-        if not layout:
-            QMessageBox.warning(None, "Erreur", "La mise en page n'a pas pu être trouvée. Veuillez vérifier sa disponibilité dans le gestionnaire de mises en page.")
+        progress_dialog.setValue(6)
+        if progress_dialog.wasCanceled():
+            progress_dialog.close()
             return
 
-        # Configurer la résolution d'export
-        exporter = QgsLayoutExporter(layout)
-        settings = QgsLayoutExporter.ImageExportSettings()
-        settings.dpi = resolution_dpi
+        # Étape 7 : Remplir la liste des sites
+        self.dlg.mComboBox.clear()
+        site_names = []
+        for feature in self.sites_gere_centroid_layer.getFeatures():
+            site_name = feature['nom_site']
+            if site_name and site_name not in site_names:
+                site_names.append(site_name)
         
-        # Exporter l'image
-        result_img = exporter.exportToImage(dossier_sauvegarde, settings)
+        site_names.sort()
+        self.dlg.mComboBox.addItems(site_names)
+
+        progress_dialog.setValue(7)
+        if progress_dialog.wasCanceled():
+            progress_dialog.close()
+            return
+
+        # Étape 8 : Remplir la liste des départements
+        self.dlg.mComboBox_4.clear()
+        dept_names = []
+        for feature in self.depts_NA.getFeatures():
+            dept_code = feature['insee_dep']
+            dept_name = feature['nom_dep']
+            if dept_code and dept_name:
+                dept_names.append(f"{dept_code} - {dept_name}")
         
-        # Afficher le résultat
-        if result_img == QgsLayoutExporter.Success:
-            QMessageBox.information(None, "Export réussi", f"La carte a été exportée avec succès en {resolution_dpi} DPI.")
-        else:
-            QMessageBox.critical(None, "Erreur d'export", "L'export a échoué. Veuillez vérifier le chemin d'enregistrement et réessayer.")
-            
-        print(f"Résultat de l'export: {result_img}")  # 0 = export réussi !
+        dept_names.sort()
+        self.dlg.mComboBox_4.addItems(dept_names)
 
-    def liste_couche_template(self):
+        progress_dialog.setValue(8)
+        if progress_dialog.wasCanceled():
+            progress_dialog.close()
+            return
 
+        # Étape 9 : Configurer les autres éléments de l'interface
+        self.dlg.comboBox_3.clear()
+        self.dlg.comboBox_3.addItems(["Localisation générale", "Périmètres écologiques", "Travaux"])
 
-        if self.dlg.comboBox.currentText() == "1. Modèle carto standard (consolidé).qpt":
-            self.dlg.lineEdit_4.setEnabled(True)
-            self.dlg.mComboBox_2.setEnabled(True)
-        else:
-            self.dlg.lineEdit_4.setEnabled(False)
-            self.dlg.mComboBox_2.setEnabled(False)
+        progress_dialog.setValue(9)
+        if progress_dialog.wasCanceled():
+            progress_dialog.close()
+            return
 
+        # Étape 10 : Finalisation
+        progress_dialog.setValue(10)
+        progress_dialog.close()
 
 
-        self.dlg.mComboBox_2.clear()
-
-        couches = []
-
-        for lyr in QgsProject.instance().mapLayers().values():
-            couches.append(lyr.name())
-
-        self.dlg.mComboBox_2.addItems(sorted(couches))
-
-
-
-    def chargement_qpt(self):
-
-
-        project = QgsProject.instance()
-        self.manager = project.layoutManager()
-        layout_name = self.dlg.comboBox.currentText()
-        layouts_list = self.manager.printLayouts()
-
-        for i in layouts_list:
-            if i.name() == layout_name:
-                self.manager.removeLayout(i)
-
-        if self.dlg.comboBox.currentText() == " ":
-            QMessageBox.question(iface.mainWindow(), u"Aucun template sélectionné !", "Veuillez sélectionner un modèle !", QMessageBox.Ok)
-
-        else:
-
-            for filename in glob.glob(self.plugin_path + "/mises_en_pages/*.qpt"):
-                with open(os.path.join(os.getcwd(), filename), 'r') as f:
-                    self.layout = QgsPrintLayout(project)
-                    self.layout.initializeDefaults()
-                    template_content = f.read()
-                    doc = QDomDocument()
-                    doc.setContent(template_content)
-                    self.layout.loadFromTemplate(doc, QgsReadWriteContext(), True)
-                    self.layout.setName(os.path.basename(filename))
-
-
-                    if self.layout.name() == "1. Modèle carto standard (consolidé).qpt":
-
-                        self.actualisation_mise_en_page()
-
-                        ## Add map to layout
-                        self.map_modele_test = QgsLayoutItemMap(self.layout)
-                        # Charger une carte vide
-                        self.map_modele_test.setRect(20, 20, 20, 20)
-                        # Mettre le canvas courant comme emprise
-                        self.map_modele_test.setExtent(iface.mapCanvas().extent())
-                        # Position de la carte dans le composeur
-
-                        self.map_modele_test.attemptMove(self.template_parameters['map_position'])
-                        # on dimensionne le rendu de la carte (pour référence la page totale est une page A4 donc 297*210)
-                        self.map_modele_test.attemptResize(self.template_parameters['map_size'])
-
-                        self.map_modele_test.refresh()
-
-                        self.map_modele_test.setBackgroundColor(QColor(255, 255, 255, 255))
-                        self.map_modele_test.setFrameEnabled(True)
-                        self.layout.addLayoutItem(self.map_modele_test)
-                        self.map_modele_test.setId("carte_principale")
-
-                        ## Ajout d'un titre à la mise en page
-                        title = QgsLayoutItemLabel(self.layout)
-                        self.layout.addLayoutItem(title)
-                        titre = self.dlg.lineEdit_2.text()
-                        title.setText(titre)
-                        title.setFont(QFont("Calibri", 15, QFont.Bold))
-                        title.attemptMove(self.template_parameters['title_position'])
-                        title.attemptResize(self.template_parameters['title_size'])
-                        self.layout.addItem(title)
-                        # title.adjustSizeToText() on n'utilise plutot setFixedSize pour pouvoir centrer le titre de manière plus optimale ici
-                        title.setHAlign(Qt.AlignHCenter)
-                        title.setVAlign(Qt.AlignVCenter)
-
-
-                        ## Ajout d'un sous titre à la mise en page
-                        subtitle = QgsLayoutItemLabel(self.layout)
-                        self.layout.addLayoutItem(subtitle)
-                        titre = self.dlg.lineEdit_3.text()
-                        subtitle.setText(titre)
-                        subtitle.setFont(QFont("MS Shell Dlg 2", 10))
-                        subtitle.attemptMove(self.template_parameters['subtitle_position'])
-                        subtitle.attemptResize(self.template_parameters['subtitle_size'])
-                        self.layout.addItem(subtitle)
-                        subtitle.setHAlign(Qt.AlignHCenter)
-                        subtitle.setVAlign(Qt.AlignVCenter)
-
-
-                        ## Ajout du logo CEN NA en haut à gauche de la page
-                        logo = QgsLayoutItemPicture(self.layout)
-                        logo.setResizeMode(QgsLayoutItemPicture.Zoom)
-                        logo.setMode(QgsLayoutItemPicture.FormatRaster)
-                        logo.attemptMove(self.template_parameters['logo_position'])
-                        logo.setFixedSize(self.template_parameters['logo_size'])
-                        logo.setPicturePath(self.plugin_path + '/logo.jpg')
-                        self.layout.addLayoutItem(logo)
-
-
-                        ## Ajout de la legende :
-                        legend = QgsLayoutItemLegend(self.layout)
-
-                        legend.setId('legende_model1')
-                        # legend.setTitle('Legende')
-                        legend.adjustBoxSize()
-                        legend.setFrameEnabled(False)
-                        legend.setAutoUpdateModel(False)
-
-                        legend.setLinkedMap(self.map_modele_test)
-                        self.layout.addItem(legend)
-
-                        # group_name = 'Périmètres écologiques'  # Name of a group in your legend
-
-                        checked_items = self.dlg.mComboBox_2.checkedItems()
-
-                        layers_to_remove = []
-
-                        for lyr in project.mapLayers().values():
-                            if lyr.name() not in checked_items:
-                                layers_to_remove.append(lyr.name())
-
-                        # the layer tree
-                        root = project.layerTreeRoot()
-
-                        # get legend
-                        legend = [i for i in self.layout.items() if isinstance(i, QgsLayoutItemLegend)][0]
-
-                        # disable auto-update
-                        legend.setAutoUpdateModel(False)
-                        legend.setLegendFilterByMapEnabled(True)
-                        # legend model
-                        model = legend.model()
-
-                        # the root legend group
-                        root_group = model.rootGroup()
-
-                        # loop through layer names
-                        for layer_name in layers_to_remove:
-                            # find layer in project
-                            layer = project.mapLayersByName(layer_name)[0]
-                            # get layer tree layer instance of layer
-                            layertreelayer = root.findLayer(layer.id())
-
-                            # get the parent of the layer tree layer (layer tree root, or group)
-                            parent = layertreelayer.parent()
-
-                            # if the parent is a group and has a name, find it and remove the layer
-                            if isinstance(parent, QgsLayerTreeGroup) and parent.name():
-                                group = root_group.findGroup(parent.name())
-                                group.removeLayer(layer)
-                            # remove layers that are not in a group
-                            else:
-                                root_group.removeLayer(layer)
-
-
-                        legend.setEqualColumnWidth(True)
-                        legend.setSplitLayer(True)
-                        legend.setColumnSpace(5)
-                        legend.rstyle(QgsLegendStyle.Title).setMargin(1.5)  # 1 mm
-                        legend.rstyle(QgsLegendStyle.Group).setMargin(QgsLegendStyle.Top, 3)
-                        legend.rstyle(QgsLegendStyle.Subgroup).setMargin(QgsLegendStyle.Top, 3)
-
-                        legend.adjustBoxSize()
-                        self.layout.refresh()
-
-                        legend.updateLegend()
-                        legend.attemptMove(self.template_parameters['legend_position'])
-
-
-                        ## Ajout de l'échelle à la mise en page
-                        self.scalebar_qpt = QgsLayoutItemScaleBar(self.layout)
-                        self.scalebar_qpt.setStyle('Single Box')
-                        self.scalebar_qpt.setLinkedMap(self.map_modele_test)
-                        self.scalebar_qpt.applyDefaultSize()
-                        self.scalebar_qpt.applyDefaultSettings()
-
-                        self.scalebar_qpt.setNumberOfSegments(2)
-                        self.scalebar_qpt.setNumberOfSegmentsLeft(0)
-
-                        self.scalebar_qpt.attemptMove(self.template_parameters['scalebar_position'])
-                        self.scalebar_qpt.attemptResize(self.template_parameters['scalebar_size'])
-
-
-                        self.layout.addLayoutItem(self.scalebar_qpt)
-                        # self.scalebar_qpt.setFixedSize(QgsLayoutSize(55, 15))
-
-                        # ajout de la fleche du Nord
-                        north = QgsLayoutItemPicture(self.layout)
-                        north.setPicturePath(self.plugin_path + "/NorthArrow_02.svg")
-                        self.layout.addLayoutItem(north)
-                        north.attemptMove(self.template_parameters['north_position'])
-                        north.attemptResize(self.template_parameters['north_size'])
-
-                        # ajout note info:
-                        info = ["Réalisation : " + "DSI / CEN Nouvelle-Aquitaine (" + date.today().strftime(
-                            "%d/%m/%Y") + ")"]
-                        info2 = ["Source : " + self.dlg.lineEdit_4.text()]
-                        credit_text = QgsLayoutItemLabel(self.layout)
-                        credit_text.setText(info[0])
-                        credit_text.setFont(QFont("Calibri", 9))
-                        credit_text.setHAlign(Qt.AlignRight)
-                        credit_text.setVAlign(Qt.AlignVCenter)
-                        credit_text.setItemRotation(-90)
-                        credit_text2 = QgsLayoutItemLabel(self.layout)
-                        credit_text2.setText(info2[0])
-                        credit_text2.setFont(QFont("Calibri", 9))
-                        credit_text2.setHAlign(Qt.AlignRight)
-                        credit_text2.setVAlign(Qt.AlignVCenter)
-                        credit_text.attemptMove(self.template_parameters['credit_text_position'])
-                        credit_text.attemptResize(self.template_parameters['credit_text_size'])
-                        credit_text2.attemptMove(self.template_parameters['credit_text2_position'])
-                        credit_text2.attemptResize(self.template_parameters['credit_text2_size'])
-                        self.layout.addLayoutItem(credit_text)
-                        self.layout.addLayoutItem(credit_text2)
-
-                        # credit_text.attemptResize(QgsLayoutSize(95, 5, QgsUnitTypes.LayoutMillimeters))
-
-                    self.bar_echelle_auto(iface.mapCanvas(), self.scalebar_qpt)
-
-                    existing_layout = project.layoutManager().layoutByName(self.layout.name())
-                    if existing_layout:
-                        project.layoutManager().removeLayout(existing_layout)
-
-                    result = project.layoutManager().addLayout(self.layout)
-                    print(result)
-
-
-
-                    self.manager.addLayout(self.layout)
-
-
-            fichier_mise_en_page = self.dlg.comboBox.currentText()
-
-            layout_modifie = QgsProject.instance().layoutManager().layoutByName(fichier_mise_en_page)
-
-            # map_item = layout_modifie.itemById("carte_principale")
-            # # map_item = layout_modifie.referenceMap()
-            #
-            # map_item.zoomToExtent(iface.mapCanvas().extent())
-            #
-            iface.openLayoutDesigner(layout_modifie)
-
-
-    def actualisation_mise_en_page(self):
-        # Paramètres pour chaque combinaison de taille de page et d'orientation
-        page_settings = {
-            ('A4', 'Portrait'): {
-                'map_size': (199, 175), 'map_position': (5, 25),
-                'title_size': (200, 8), 'title_position': (5, 2),
-                'subtitle_size': (200, 8), 'subtitle_position': (5, 12),
-                'logo_size': (46, 16), 'logo_position': (5, 4),
-                'legend_size': (405, 203), 'legend_position': (5, 205),
-                'scalebar_size': (55, 15), 'scalebar_position': (145, 215),
-                'north_size': (12, 12), 'north_position': (193, 214),
-                'credit_text_size': (100, 3.9), 'credit_text_position': (205, 125),
-                'credit_text2_size': (100, 3.9), 'credit_text2_position': (104, 201)
-            },
-            ('A4', 'Landscape'): {
-                'map_size': (285, 145), 'map_position': (6, 23),
-                'title_size': (286, 8), 'title_position': (5, 2),
-                'subtitle_size': (286, 8), 'subtitle_position': (5, 10),
-                'logo_size': (46, 16), 'logo_position': (5, 4),
-                'legend_size': (405, 203), 'legend_position': (5, 168),
-                'scalebar_size': (55, 15), 'scalebar_position': (207, 183),
-                'north_size': (8.4, 12.5), 'north_position': (273, 182),
-                'credit_text_size': (100, 3.9), 'credit_text_position': (291.5, 123),
-                'credit_text2_size': (100, 3.9), 'credit_text2_position': (189, 168.5)
-            },
-            ('A3', 'Portrait'): {
-                'map_size': (285, 260), 'map_position': (6, 23),
-                'title_size': (286, 8), 'title_position': (5, 2),
-                'subtitle_size': (286, 8), 'subtitle_position': (5, 10),
-                'logo_size': (46, 16), 'logo_position': (5, 4),
-                'legend_size': (405, 203), 'legend_position': (5, 284),
-                'scalebar_size': (50, 15), 'scalebar_position': (207, 298),
-                'north_size': (8.4, 12.5), 'north_position': (273, 297),
-                'credit_text_size': (100, 3.9), 'credit_text_position': (291.5, 123),
-                'credit_text2_size': (100, 3.9), 'credit_text2_position': (189, 284)
-            },
-            ('A3', 'Landscape'): {
-                'map_size': (408.5, 222), 'map_position': (5, 23.5),
-                'title_size': (409, 8), 'title_position': (5, 2),
-                'subtitle_size': (409, 8), 'subtitle_position': (5, 10),
-                'logo_size': (46, 16), 'logo_position': (5, 4),
-                'legend_size': (405, 203), 'legend_position': (5, 249),
-                'scalebar_size': (55, 15), 'scalebar_position': (323, 270),
-                'north_size': (8.4, 12.5), 'north_position': (402, 270),
-                'credit_text_size': (100, 3.9), 'credit_text_position': (415, 123),
-                'credit_text2_size': (100, 3.9), 'credit_text2_position': (313, 247)
-            }
-        }
-
-        # Détermine la taille et l'orientation de la page sélectionnée
-        page_size = 'A4' if self.dlg.radioButton_6.isChecked() else 'A3'
-        orientation = 'Portrait' if self.dlg.radioButton_7.isChecked() else 'Landscape'
-        
-        # Applique les paramètres du dictionnaire
-        pc = self.layout.pageCollection()
-        pc.pages()[0].setPageSize(page_size, getattr(QgsLayoutItemPage, orientation))
-
-        settings = page_settings[(page_size, orientation)]
-        for param, (width, height) in settings.items():
-            if 'size' in param:
-                self.template_parameters[param] = QgsLayoutSize(width, height, QgsUnitTypes.LayoutMillimeters)
-            else:
-                self.template_parameters[param] = QgsLayoutPoint(width, height, QgsUnitTypes.LayoutMillimeters)
-
-
-
-    def niveau_zoom(self):
-
-        if self.dlg.horizontalSlider.value() == 2:
-            self.my_map1.setScale(self.echelle/1.8)
-        elif self.dlg.horizontalSlider.value() == 1:
-            self.my_map1.setScale(self.echelle/1.4)
-        elif self.dlg.horizontalSlider.value() == 0:
-            self.my_map1.setScale(self.echelle)
-        elif self.dlg.horizontalSlider.value() == -1:
-            self.my_map1.setScale(self.echelle*1.4)
-        else:
-            self.my_map1.setScale(self.echelle*1.8)
-
-        self.my_map1.refresh()
-
-        self.layout3 = QgsProject.instance().layoutManager().layoutByName('Mise en page automatique MapCEN (MFU)').clone()
-        self.dlg.graphicsView.setScene(self.layout3)
-        self.layout.refresh()
-
-        self.bar_echelle_auto(self.my_map1, self.scalebar)
-
-
-    def bar_echelle_auto(self, echelle, bar_echelle):
-
-        if echelle.scale() >= 45000:
-            bar_echelle.setUnits(QgsUnitTypes.DistanceKilometers)
-            bar_echelle.setUnitLabel("km")
-            bar_echelle.setUnitsPerSegment(1.5)
-
-        elif echelle.scale() >= 30000:
-            bar_echelle.setUnits(QgsUnitTypes.DistanceKilometers)
-            bar_echelle.setUnitLabel("km")
-            bar_echelle.setUnitsPerSegment(1)
-
-        elif echelle.scale() >= 20000:
-            bar_echelle.setUnits(QgsUnitTypes.DistanceKilometers)
-            bar_echelle.setUnitLabel("km")
-            bar_echelle.setUnitsPerSegment(0.5)
-
-        elif echelle.scale() >= 9000:
-            bar_echelle.setUnits(QgsUnitTypes.DistanceMeters)
-            bar_echelle.setUnitLabel("m")
-            bar_echelle.setUnitsPerSegment(250)
-
-        elif echelle.scale() >= 5000:
-            bar_echelle.setUnits(QgsUnitTypes.DistanceMeters)
-            bar_echelle.setUnitLabel("m")
-            bar_echelle.setUnitsPerSegment(100)
-
-        else:
-            bar_echelle.setUnits(QgsUnitTypes.DistanceMeters)
-            bar_echelle.setUnitLabel("m")
-            bar_echelle.setUnitsPerSegment(50)
-
-        bar_echelle.update()
-
-    def popup_resolution(self):
-
-        self.dialog = OptionsWindow()
-        self.dialog.show()
-
+# Créer une instance globale du plugin
 map_cen_instance = MapCEN(iface)
